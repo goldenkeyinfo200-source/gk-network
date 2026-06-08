@@ -7,7 +7,9 @@ const pool = require('../db/pool');
 router.post('/login', async (req, res) => {
   try {
     const { login, password } = req.body;
-    if (!login || !password) return res.status(400).json({ error: 'Login va parol kerak' });
+    if (!login || !password) {
+      return res.status(400).json({ error: 'Login va parol kerak' });
+    }
 
     const { rows } = await pool.query(
       'SELECT * FROM agents WHERE login = $1 AND is_active = true',
@@ -15,15 +17,34 @@ router.post('/login', async (req, res) => {
     );
 
     const agent = rows[0];
-    if (!agent) return res.status(401).json({ error: 'Login yoki parol xato' });
+    if (!agent) {
+      return res.status(401).json({ error: 'Login yoki parol xato' });
+    }
 
     const valid = await bcrypt.compare(password, agent.password_hash);
-    if (!valid) return res.status(401).json({ error: 'Login yoki parol xato' });
+    if (!valid) {
+      return res.status(401).json({ error: 'Login yoki parol xato' });
+    }
+
+    const now = new Date();
+    const trialEnd = agent.trial_end ? new Date(agent.trial_end) : null;
+    const paidUntil = agent.paid_until ? new Date(agent.paid_until) : null;
+
+    const isAdmin = agent.role === 'admin';
+    const trialActive = trialEnd && trialEnd >= now;
+    const paidActive = agent.is_paid === true && paidUntil && paidUntil >= now;
+
+    if (!isAdmin && !trialActive && !paidActive) {
+      return res.status(403).json({
+        error: '14 кунлик бепул муддат тугаган. Мини аппдан фойдаланиш учун тўлов қилинг.',
+        subscription_status: 'expired'
+      });
+    }
 
     const token = jwt.sign(
       { id: agent.id, role: agent.role },
       process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRES }
+      { expiresIn: process.env.JWT_EXPIRES || '7d' }
     );
 
     res.json({
@@ -32,8 +53,15 @@ router.post('/login', async (req, res) => {
         id: agent.id,
         display_id: agent.display_id,
         full_name: agent.full_name,
+        phone: agent.phone,
         role: agent.role,
-        company_id: agent.company_id
+        company_id: agent.company_id,
+        trial_start: agent.trial_start,
+        trial_end: agent.trial_end,
+        subscription_status: agent.subscription_status,
+        is_paid: agent.is_paid,
+        paid_until: agent.paid_until,
+        payment_code: agent.payment_code
       }
     });
   } catch (err) {
@@ -41,21 +69,82 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// POST /api/auth/register (faqat admin)
+// POST /api/auth/register
 router.post('/register', async (req, res) => {
   try {
     const { login, password, full_name, phone, role, company_id } = req.body;
-    
-    const exists = await pool.query('SELECT id FROM agents WHERE login = $1', [login]);
-    if (exists.rows[0]) return res.status(400).json({ error: 'Bu login band' });
+
+    if (!login || !password || !full_name || !phone) {
+      return res.status(400).json({
+        error: 'Login, parol, ism va telefon majburiy'
+      });
+    }
+
+    const exists = await pool.query(
+      'SELECT id FROM agents WHERE login = $1',
+      [login]
+    );
+
+    if (exists.rows[0]) {
+      return res.status(400).json({ error: 'Bu login band' });
+    }
 
     const hash = await bcrypt.hash(password, 10);
 
+    const paymentCode = 'GK-' + Math.floor(100000 + Math.random() * 900000);
+
     const { rows } = await pool.query(
-      `INSERT INTO agents (display_id, login, password_hash, full_name, phone, role, company_id)
-       VALUES (gen_display_id('AG', 'seq_agent'), $1, $2, $3, $4, $5, $6)
-       RETURNING id, display_id, full_name, role`,
-      [login, hash, full_name, phone, role || 'agent', company_id || null]
+      `INSERT INTO agents (
+        display_id,
+        login,
+        password_hash,
+        full_name,
+        phone,
+        role,
+        company_id,
+        trial_start,
+        trial_end,
+        subscription_status,
+        is_paid,
+        paid_until,
+        payment_code,
+        is_active
+      )
+      VALUES (
+        gen_display_id('AG', 'seq_agent'),
+        $1, $2, $3, $4, $5, $6,
+        NOW(),
+        NOW() + INTERVAL '14 days',
+        'trial',
+        false,
+        NULL,
+        $7,
+        true
+      )
+      RETURNING
+        id,
+        display_id,
+        login,
+        full_name,
+        phone,
+        role,
+        company_id,
+        trial_start,
+        trial_end,
+        subscription_status,
+        is_paid,
+        paid_until,
+        payment_code,
+        is_active`,
+      [
+        login,
+        hash,
+        full_name,
+        phone,
+        role || 'agent',
+        company_id || null,
+        paymentCode
+      ]
     );
 
     res.status(201).json(rows[0]);
