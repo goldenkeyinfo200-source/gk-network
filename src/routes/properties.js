@@ -25,15 +25,19 @@ router.get('/', async (req, res) => {
       params.push(agent.id);
       where += ` AND p.agent_id = $${params.length}`;
     } else if (agent.role === 'agent') {
-      // Agentlarga hammasi ko‘rsatiladi, lekin boshqaniki cheklangan
+      // Agentlarga hammasi ko'rsatiladi, lekin boshqaniki cheklangan
     } else if (agent.role === 'company') {
       params.push(agent.company_id);
       where += ` AND p.company_id = $${params.length}`;
     }
 
     if (status) {
+      // Aniq status berilsa — shuni ko'rsat (arxiv ham ko'rinadi)
       params.push(status);
       where += ` AND p.status = $${params.length}`;
+    } else {
+      // Status berilmasa — arxivdagilarni yashir
+      where += ` AND p.status <> 'archived'`;
     }
 
     if (purpose) {
@@ -315,10 +319,10 @@ router.put('/:id', async (req, res) => {
     }
 
     if (ex[0].agent_id !== req.agent.id && req.agent.role !== 'admin') {
-      return res.status(403).json({ error: 'Ruxsat yo‘q' });
+      return res.status(403).json({ error: "Ruxsat yo'q" });
     }
 
-    const {
+    let {
       price,
       status,
       description,
@@ -326,6 +330,11 @@ router.put('/:id', async (req, res) => {
       installment,
       address
     } = req.body;
+
+    // sold → avtomatik archived
+    if (status === 'sold') {
+      status = 'archived';
+    }
 
     const { rows } = await pool.query(`
       UPDATE properties
@@ -386,7 +395,8 @@ router.get('/:id/matches', async (req, res) => {
         purpose,
         property_type,
         rooms,
-        price
+        price,
+        status
       FROM properties
       WHERE id = $1
     `, [req.params.id]);
@@ -395,6 +405,11 @@ router.get('/:id/matches', async (req, res) => {
 
     if (!prop) {
       return res.status(404).json({ error: 'Topilmadi' });
+    }
+
+    // Arxivlangan obyekt uchun moslik qaytarma
+    if (prop.status === 'archived') {
+      return res.json([]);
     }
 
     const needType = prop.purpose === 'sell' ? 'buy' : 'rent';
