@@ -22,8 +22,12 @@ router.get('/', async (req, res) => {
     ];
 
     if (status) {
+      // Aniq status berilsa — shuni ko'rsat (arxiv ham ko'rinadi)
       params.push(status);
       where += ` AND c.status = $${params.length}`;
+    } else {
+      // Status berilmasa — arxivdagilarni yashir
+      where += ` AND c.status <> 'archived'`;
     }
 
     if (search) {
@@ -115,11 +119,16 @@ router.put('/:id', async (req, res) => {
       return res.status(403).json({ error: 'Ruxsat yo\'q' });
     }
 
-    const {
+    let {
       full_name, phone, need_type, property_type,
       rooms, budget_min, budget_max, region, district,
       mortgage, installment, notes, status
     } = req.body;
+
+    // done → avtomatik archived
+    if (status === 'done') {
+      status = 'archived';
+    }
 
     const { rows } = await pool.query(`
       UPDATE clients SET
@@ -158,6 +167,11 @@ router.get('/:id/matches', async (req, res) => {
     const { rows: clientRows } = await pool.query('SELECT * FROM clients WHERE id = $1', [req.params.id]);
     const client = clientRows[0];
     if (!client) return res.status(404).json({ error: 'Topilmadi' });
+
+    // Arxivlangan mijoz uchun moslik qaytarma
+    if (client.status === 'archived') {
+      return res.json([]);
+    }
 
     const purposeMap = { buy: 'sell', rent: 'rent' };
 
