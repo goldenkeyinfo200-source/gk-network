@@ -2,13 +2,17 @@ const router = require('express').Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const pool = require('../db/pool');
+const { auth } = require('../middleware/auth');
 
-// POST /api/auth/login
+// LOGIN
 router.post('/login', async (req, res) => {
   try {
     const { login, password } = req.body;
+
     if (!login || !password) {
-      return res.status(400).json({ error: 'Login va parol kerak' });
+      return res.status(400).json({
+        error: 'Login va parol kerak'
+      });
     }
 
     const { rows } = await pool.query(
@@ -17,34 +21,33 @@ router.post('/login', async (req, res) => {
     );
 
     const agent = rows[0];
+
     if (!agent) {
-      return res.status(401).json({ error: 'Login yoki parol xato' });
+      return res.status(401).json({
+        error: 'Login yoki parol xato'
+      });
     }
 
-    const valid = await bcrypt.compare(password, agent.password_hash);
+    const valid = await bcrypt.compare(
+      password,
+      agent.password_hash
+    );
+
     if (!valid) {
-      return res.status(401).json({ error: 'Login yoki parol xato' });
-    }
-
-    const now = new Date();
-    const trialEnd = agent.trial_end ? new Date(agent.trial_end) : null;
-    const paidUntil = agent.paid_until ? new Date(agent.paid_until) : null;
-
-    const isAdmin = agent.role === 'admin';
-    const trialActive = trialEnd && trialEnd >= now;
-    const paidActive = agent.is_paid === true && paidUntil && paidUntil >= now;
-
-    if (!isAdmin && !trialActive && !paidActive) {
-      return res.status(403).json({
-        error: '14 кунлик бепул муддат тугаган. Мини аппдан фойдаланиш учун тўлов қилинг.',
-        subscription_status: 'expired'
+      return res.status(401).json({
+        error: 'Login yoki parol xato'
       });
     }
 
     const token = jwt.sign(
-      { id: agent.id, role: agent.role },
+      {
+        id: agent.id,
+        role: agent.role
+      },
       process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRES || '7d' }
+      {
+        expiresIn: process.env.JWT_EXPIRES || '30d'
+      }
     );
 
     res.json({
@@ -53,108 +56,126 @@ router.post('/login', async (req, res) => {
         id: agent.id,
         display_id: agent.display_id,
         full_name: agent.full_name,
-        phone: agent.phone,
         role: agent.role,
-        company_id: agent.company_id,
-        trial_start: agent.trial_start,
-        trial_end: agent.trial_end,
-        subscription_status: agent.subscription_status,
-        is_paid: agent.is_paid,
-        paid_until: agent.paid_until,
-        payment_code: agent.payment_code
+        company_id: agent.company_id
       }
     });
+
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({
+      error: err.message
+    });
   }
 });
 
-// POST /api/auth/register
+
+// REGISTER AGENT
 router.post('/register', async (req, res) => {
   try {
-    const { login, password, full_name, phone, role, company_id } = req.body;
 
-    if (!login || !password || !full_name || !phone) {
-      return res.status(400).json({
-        error: 'Login, parol, ism va telefon majburiy'
-      });
-    }
+    const {
+      full_name,
+      phone,
+      login,
+      password,
+      company_id
+    } = req.body;
 
     const exists = await pool.query(
-      'SELECT id FROM agents WHERE login = $1',
+      'SELECT id FROM agents WHERE login=$1',
       [login]
     );
 
-    if (exists.rows[0]) {
-      return res.status(400).json({ error: 'Bu login band' });
+    if (exists.rows.length) {
+      return res.status(400).json({
+        error: 'Bu login band'
+      });
     }
 
     const hash = await bcrypt.hash(password, 10);
 
-    const paymentCode = 'GK-' + Math.floor(100000 + Math.random() * 900000);
+    const trialStart = new Date();
+
+    const trialEnd = new Date();
+    trialEnd.setDate(trialEnd.getDate() + 14);
 
     const { rows } = await pool.query(
-      `INSERT INTO agents (
+      `
+      INSERT INTO agents (
         display_id,
+        full_name,
+        phone,
         login,
         password_hash,
-        full_name,
-        phone,
         role,
-        company_id,
         trial_start,
         trial_end,
-        subscription_status,
-        is_paid,
-        paid_until,
-        payment_code,
-        is_active
+        is_active,
+        company_id
       )
       VALUES (
-        gen_display_id('AG', 'seq_agent'),
-        $1, $2, $3, $4, $5, $6,
-        NOW(),
-        NOW() + INTERVAL '14 days',
-        'trial',
-        false,
-        NULL,
-        $7,
-        true
+        gen_display_id('AG','seq_agent'),
+        $1,$2,$3,$4,
+        'agent',
+        $5,
+        $6,
+        true,
+        $7
       )
-      RETURNING
-        id,
-        display_id,
-        login,
+      RETURNING *
+      `,
+      [
         full_name,
         phone,
-        role,
-        company_id,
-        trial_start,
-        trial_end,
-        subscription_status,
-        is_paid,
-        paid_until,
-        payment_code,
-        is_active`,
-      [
         login,
         hash,
-        full_name,
-        phone,
-        role || 'agent',
-        company_id || null,
-        paymentCode
+        trialStart,
+        trialEnd,
+        company_id || null
       ]
     );
 
     res.status(201).json(rows[0]);
+
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({
+      error: err.message
+    });
   }
 });
 
-// GET /api/auth/me
-router.get('/me', require('../middleware/auth').auth, (req, res) => {
+
+// AGENTS LIST
+router.get('/agents', auth, async (req, res) => {
+  try {
+
+    const { rows } = await pool.query(`
+      SELECT
+      id,
+      display_id,
+      full_name,
+      phone,
+      login,
+      role,
+      trial_start,
+      trial_end,
+      is_active
+      FROM agents
+      ORDER BY created_at DESC
+    `);
+
+    res.json(rows);
+
+  } catch (err) {
+    res.status(500).json({
+      error: err.message
+    });
+  }
+});
+
+
+// ME
+router.get('/me', auth, (req, res) => {
   res.json(req.agent);
 });
 
