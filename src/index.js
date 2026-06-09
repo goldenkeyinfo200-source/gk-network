@@ -152,6 +152,7 @@ app.use('/api/auth',       require('./routes/auth'));
 app.use('/api/clients',    require('./routes/clients'));
 app.use('/api/properties', require('./routes/properties'));
 app.use('/api/leads',      require('./routes/leads'));
+app.use('/api/admin',      require('./routes/admin'));
 
 // ─── Health check ─────────────────────────────────────────
 app.get('/health', (req, res) => res.json({ status: 'ok', time: new Date() }));
