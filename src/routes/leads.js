@@ -1,149 +1,139 @@
-require('dotenv').config();
-const express = require('express');
-const cors = require('cors');
-const TelegramBot = require('node-telegram-bot-api');
-const pool = require('./db/pool');
+const router = require('express').Router();
+const pool   = require('../db/pool');
+const { auth } = require('../middleware/auth');
 
-const app = express();
-const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: false });
+router.use(auth);
 
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-async function saveTelegramId(msg) {
-  const tgId = msg.from.id;
-  const username = msg.from.username || '';
-
-  if (!username) return null;
-
-  const { rows } = await pool.query(
-    `
-    UPDATE agents
-    SET telegram_id = $1
-    WHERE LOWER(login) = LOWER($2)
-    RETURNING login, full_name
-    `,
-    [tgId, username]
-  );
-
-  return rows[0] || null;
-}
-
-app.post('/webhook', async (req, res) => {
+// GET /api/leads
+router.get('/', async (req, res) => {
   try {
-    const update = req.body;
+    const { type } = req.query;
 
-    if (update.message) {
-      const msg = update.message;
-      const chatId = msg.chat.id;
-      const text = msg.text || '';
+    const where = type === 'incoming'
+      ? 'WHERE le.receiver_id = $1'
+      : type === 'outgoing'
+      ? 'WHERE le.sender_id = $1'
+      : 'WHERE le.sender_id = $1 OR le.receiver_id = $1';
 
-      if (text.startsWith('/start')) {
-        const linkedAgent = await saveTelegramId(msg);
+    const { rows } = await pool.query(`
+      SELECT le.*,
+        s.full_name as sender_name,   s.phone as sender_phone,
+        r.full_name as receiver_name,
+        c.display_id as client_display_id,
+        c.need_type, c.property_type,
+        c.budget_min, c.budget_max, c.rooms,
+        c.full_name as client_name,
+        CASE WHEN le.receiver_id = $1 AND le.status = 'accepted'
+             THEN c.phone ELSE NULL END as client_phone
+      FROM lead_exchange le
+      JOIN agents s  ON s.id  = le.sender_id
+      JOIN agents r  ON r.id  = le.receiver_id
+      JOIN clients c ON c.id  = le.client_id
+      ${where}
+      ORDER BY le.created_at DESC
+    `, [req.agent.id]);
 
-        if (linkedAgent) {
-          await bot.sendMessage(
-            chatId,
-            `✅ Telegram ID сақланди!\n\n👤 Агент: ${linkedAgent.full_name}\n🔐 Login: ${linkedAgent.login}`
-          );
-        } else {
-          await bot.sendMessage(
-            chatId,
-            `👋 Салом!\n\nTelegram ID ни агент аккаунтига улаш учун логинингизни юборинг:\n\n/link login\n\nМасалан:\n/link damir`
-          );
-        }
-      }
-
-      if (text.startsWith('/link ')) {
-        const login = text.replace('/link ', '').trim();
-
-        if (!login) {
-          await bot.sendMessage(chatId, 'Логинни киритинг. Масалан: /link damir');
-          return res.json({ ok: true });
-        }
-
-        const { rows } = await pool.query(
-          `
-          UPDATE agents
-          SET telegram_id = $1
-          WHERE LOWER(login) = LOWER($2)
-          RETURNING login, full_name
-          `,
-          [msg.from.id, login]
-        );
-
-        if (rows[0]) {
-          await bot.sendMessage(
-            chatId,
-            `✅ Telegram ID сақланди!\n\n👤 Агент: ${rows[0].full_name}\n🔐 Login: ${rows[0].login}`
-          );
-        } else {
-          await bot.sendMessage(chatId, '❌ Бундай login топилмади.');
-        }
-      }
-    }
-
-    if (update.callback_query) {
-      const q = update.callback_query;
-      const data = q.data || '';
-      const chatId = q.message.chat.id;
-
-      if (data.startsWith('lead_accept_') || data.startsWith('lead_reject_')) {
-        const leadId = data.replace('lead_accept_', '').replace('lead_reject_', '');
-        const status = data.startsWith('lead_accept_') ? 'accepted' : 'rejected';
-
-        const { rows } = await pool.query(
-          `
-          UPDATE lead_exchange
-          SET status = $1,
-              responded_at = NOW()
-          WHERE id = $2
-          RETURNING *
-          `,
-          [status, leadId]
-        );
-
-        await bot.answerCallbackQuery(q.id, {
-          text: status === 'accepted' ? 'Лид қабул қилинди' : 'Лид рад этилди'
-        });
-
-        await bot.sendMessage(
-          chatId,
-          status === 'accepted'
-            ? '✅ Лид қабул қилинди'
-            : '❌ Лид рад этилди'
-        );
-      }
-    }
-
-    res.json({ ok: true });
+    res.json(rows);
   } catch (err) {
-    console.error('Telegram webhook error:', err);
-    res.status(200).json({ ok: false });
+    res.status(500).json({ error: err.message });
   }
 });
 
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/clients', require('./routes/clients'));
-app.use('/api/properties', require('./routes/properties'));
-app.use('/api/leads', require('./routes/leads'));
+// POST /api/leads — lid yuborish
+router.post('/', async (req, res) => {
+  try {
+    const { client_id, receiver_id, notes } = req.body;
 
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', time: new Date() });
+    // Faqat o'z mijozini yuborishi mumkin
+    const { rows: clientRows } = await pool.query(
+      'SELECT * FROM clients WHERE id=$1 AND agent_id=$2',
+      [client_id, req.agent.id]
+    );
+    if (!clientRows[0]) {
+      return res.status(403).json({ error: 'Bu sizning mijozingiz emas' });
+    }
+
+    const { rows } = await pool.query(`
+      INSERT INTO lead_exchange (display_id, client_id, sender_id, receiver_id, notes)
+      VALUES (gen_display_id('LE','seq_lead'), $1, $2, $3, $4)
+      RETURNING *
+    `, [client_id, req.agent.id, receiver_id, notes]);
+
+    const lead   = rows[0];
+    const client = clientRows[0];
+
+    // Receiver agentga Telegram xabar — tgSend orqali
+    const tgSend = req.app.get('tgSend');
+    const { rows: recvRows } = await pool.query(
+      'SELECT * FROM agents WHERE id=$1', [receiver_id]
+    );
+    const receiver = recvRows[0];
+
+    if (receiver?.telegram_id && tgSend) {
+      await tgSend(
+        receiver.telegram_id,
+        `🔔 <b>Yangi lid keldi!</b>\n\n` +
+        `👤 Yuboruvchi: ${req.agent.full_name}\n` +
+        `🆔 Mijoz: ${client.display_id}\n` +
+        `🏠 ${client.property_type} · ${client.need_type === 'buy' ? 'Sotib oladi' : 'Ijaraga'}\n` +
+        `💰 Byudjet: $${client.budget_min || 0} – $${client.budget_max || '?'}\n` +
+        (notes ? `📝 Izoh: ${notes}` : ''),
+        {
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [[
+              { text: '✅ Qabul qildim', callback_data: `lead_accept_${lead.id}` },
+              { text: '❌ Rad etdim',    callback_data: `lead_reject_${lead.id}` },
+            ]]
+          }
+        }
+      );
+    }
+
+    res.status(201).json(lead);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.use((req, res) => {
-  res.status(404).json({ error: 'Topilmadi' });
+// PUT /api/leads/:id/respond — qabul/rad
+router.put('/:id/respond', async (req, res) => {
+  try {
+    const { action } = req.body;
+    const status = action === 'accept' ? 'accepted' : 'rejected';
+
+    const { rows } = await pool.query(`
+      UPDATE lead_exchange
+      SET status=$1, responded_at=NOW()
+      WHERE id=$2 AND receiver_id=$3
+      RETURNING *
+    `, [status, req.params.id, req.agent.id]);
+
+    if (!rows[0]) return res.status(404).json({ error: 'Topilmadi' });
+
+    // Sender ga xabar
+    const lead   = rows[0];
+    const tgSend = req.app.get('tgSend');
+    const { rows: senderRows } = await pool.query(
+      'SELECT * FROM agents WHERE id=$1', [lead.sender_id]
+    );
+    const sender = senderRows[0];
+
+    if (sender?.telegram_id && tgSend) {
+      const emoji = action === 'accept' ? '✅' : '❌';
+      await tgSend(
+        sender.telegram_id,
+        `${emoji} <b>${req.agent.full_name}</b> lidni ` +
+        `${action === 'accept' ? 'qabul qildi' : 'rad etdi'}!\n` +
+        `Lid: ${lead.display_id}`,
+        { parse_mode: 'HTML' }
+      );
+    }
+
+    res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.use((err, req, res, next) => {
-  console.error(err);
-  res.status(500).json({ error: err.message });
-});
-
-const PORT = process.env.PORT || 3000;
-
-app.listen(PORT, () => {
-  console.log(`✅ Server ishlamoqda: http://localhost:${PORT}`);
-});
+module.exports = router;
