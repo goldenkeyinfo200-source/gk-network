@@ -2,6 +2,7 @@ require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
+const TelegramBot = require('node-telegram-bot-api');
 
 const pool = require('./db/pool');
 
@@ -15,46 +16,41 @@ const bannersRoutes = require('./routes/banners');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+const bot = new TelegramBot(process.env.BOT_TOKEN, {
+  polling: false,
+});
+
+app.set('bot', bot);
+
 app.use(cors({
   origin: '*',
-  credentials: true
+  credentials: true,
 }));
 
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
 async function tgSendMessage(chatId, text, extra = {}) {
-  const token = process.env.BOT_TOKEN;
-
-  if (!token) {
+  if (!process.env.BOT_TOKEN) {
     console.error('BOT_TOKEN topilmadi');
     return null;
   }
 
-  const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      chat_id: chatId,
-      text,
+  try {
+    return await bot.sendMessage(chatId, text, {
       parse_mode: 'HTML',
-      ...extra
-    })
-  });
-
-  const data = await res.json();
-
-  if (!data.ok) {
-    console.error('Telegram sendMessage error:', data);
+      ...extra,
+    });
+  } catch (err) {
+    console.error('Telegram sendMessage error:', err.message);
+    return null;
   }
-
-  return data;
 }
 
 app.get('/', (req, res) => {
   res.json({
     status: 'ok',
-    service: 'GK Network API'
+    service: 'GK Network API',
   });
 });
 
@@ -64,13 +60,13 @@ app.get('/health', async (req, res) => {
     res.json({
       status: 'ok',
       db: 'connected',
-      time: new Date().toISOString()
+      time: new Date().toISOString(),
     });
   } catch (err) {
     console.error('Health error:', err);
     res.status(500).json({
       status: 'error',
-      db: 'disconnected'
+      db: 'disconnected',
     });
   }
 });
@@ -100,7 +96,7 @@ app.post('/webhook', async (req, res) => {
         chatId,
         tgId,
         username,
-        text
+        text,
       });
 
       if (text.startsWith('/start')) {
@@ -114,23 +110,14 @@ app.post('/webhook', async (req, res) => {
                 username = COALESCE(username, $2)
               WHERE
                 telegram_id = $1
-                OR username = $2
-                OR login = $2
+                OR LOWER(username) = LOWER($2)
+                OR LOWER(login) = LOWER($2)
               `,
               [tgId, username]
             );
-          } else {
-            await pool.query(
-              `
-              UPDATE agents
-              SET telegram_id = $1
-              WHERE telegram_id = $1
-              `,
-              [tgId]
-            );
           }
         } catch (dbErr) {
-          console.error('Telegram ID saqlash xato:', dbErr);
+          console.error('Telegram ID saqlash xato:', dbErr.message);
         }
 
         await tgSendMessage(
@@ -150,12 +137,12 @@ app.post('/webhook', async (req, res) => {
                   {
                     text: '🏠 GK Network ochish',
                     web_app: {
-                      url: process.env.MINI_APP_URL || 'https://gk-frontend-one.vercel.app'
-                    }
-                  }
-                ]
-              ]
-            }
+                      url: process.env.MINI_APP_URL || 'https://gk-frontend-one.vercel.app',
+                    },
+                  },
+                ],
+              ],
+            },
           }
         );
 
@@ -177,7 +164,7 @@ app.post('/webhook', async (req, res) => {
 
     return res.sendStatus(200);
   } catch (err) {
-    console.error('Webhook error:', err);
+    console.error('Webhook error:', err.message);
     return res.sendStatus(200);
   }
 });
@@ -195,14 +182,14 @@ app.use('/api/banners', bannersRoutes);
 
 app.use((req, res) => {
   res.status(404).json({
-    error: 'Topilmadi'
+    error: 'Topilmadi',
   });
 });
 
 app.use((err, req, res, next) => {
   console.error('Server error:', err);
   res.status(500).json({
-    error: 'Server xatosi'
+    error: 'Server xatosi',
   });
 });
 
