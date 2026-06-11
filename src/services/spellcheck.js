@@ -1,48 +1,33 @@
-// spellcheck.js — Oddiy imlo tuzatish (regex, API siz)
+function cleanText(value = '') {
+  let text = String(value || '');
 
-function fixSpelling(fields) {
-  const result = {};
+  text = text.replace(/\s+/g, ' ').trim();
 
-  for (const [key, value] of Object.entries(fields)) {
-    if (!value || typeof value !== 'string') {
-      result[key] = value;
-      continue;
-    }
+  text = text.replace(/o[`‘’ʼ]/gi, "o'");
+  text = text.replace(/g[`‘’ʼ]/gi, "g'");
 
-    let v = value;
+  text = text.replace(/\bamir temur\b/gi, 'Amir Temur');
+  text = text.replace(/\byunusobod\b/gi, 'Yunusobod');
 
-    // 1. Ortiqcha bo'shliqlarni tozalash
-    v = v.replace(/\s{2,}/g, ' ').trim();
+  text = text.replace(/\bko['‘’ʼ`]?ch\.?\b/gi, "Ko'cha");
+  text = text.replace(/\btum\.?\b/gi, 'tumani');
 
-    // 2. Apostroflarni standartlashtirish (` ' ' → ')
-    v = v.replace(/[`'']/g, "'");
+  text = text.replace(/(\d+)\s*-\s*uy/gi, '$1-uy');
 
-    // 3. O' va G' harflarini to'g'rilash
-    v = v.replace(/o`|o'/gi, (m) => m[0] === 'O' || m[0] === 'o' ? "o'" : "O'");
-    v = v.replace(/g`|g'/gi, (m) => m[0] === 'G' || m[0] === 'g' ? "g'" : "G'");
-
-    // 4. Har bir so'zning bosh harfini katta qilish (joy nomlari uchun)
-    if (['district', 'landmark', 'region'].includes(key)) {
-      v = v.replace(/(?:^|\s)\S/g, (m) => m.toUpperCase());
-    }
-
-    // 5. Verguldan keyin bo'sh joy bo'lsin
-    v = v.replace(/,(\S)/g, ', $1');
-
-    // 6. Ko'cha qisqartmalarini to'g'rilash
-    v = v.replace(/\bko[`'']?ch\.?\b/gi, "Ko'cha");
-    v = v.replace(/\bko[`'']?ch\b/gi, "Ko'cha");
-    v = v.replace(/\bst\.?\b/gi, 'St.');
-    v = v.replace(/\btum\.?\b/gi, 'tumani');
-    v = v.replace(/\bmah\.?\b/gi, 'mahallasi');
-
-    // 7. Raqamdan keyin tartib son qo'shimchalarini tozalash
-    v = v.replace(/(\d+)\s*[-–]\s*(uy|xona|qavat)/gi, '$1-$2');
-
-    result[key] = v;
-  }
-
-  return result;
+  return text;
 }
 
-module.exports = { fixSpelling };
+function spellcheckProperty(data = {}) {
+  return {
+    ...data,
+    address: cleanText(data.address),
+    district: cleanText(data.district),
+    description: cleanText(data.description),
+    landmark: cleanText(data.landmark || data.moljal),
+  };
+}
+
+module.exports = {
+  cleanText,
+  spellcheckProperty,
+};
