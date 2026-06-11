@@ -31,10 +31,7 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    const valid = await bcrypt.compare(
-      password,
-      agent.password_hash
-    );
+    const valid = await bcrypt.compare(password, agent.password_hash);
 
     if (!valid) {
       return res.status(401).json({
@@ -88,12 +85,7 @@ router.post('/register-public', async (req, res) => {
       password
     } = req.body;
 
-    if (
-      !full_name ||
-      !phone ||
-      !login ||
-      !password
-    ) {
+    if (!full_name || !phone || !login || !password) {
       return res.status(400).json({
         error: 'Барча майдонларни тўлдиринг'
       });
@@ -150,8 +142,7 @@ router.post('/register-public', async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message:
-        'Муваффақиятли рўйхатдан ўтдингиз. 14 кунлик бепул тариф фаоллаштирилди.',
+      message: 'Муваффақиятли рўйхатдан ўтдингиз. 14 кунлик бепул тариф фаоллаштирилди.',
       agent: rows[0]
     });
 
@@ -168,7 +159,6 @@ router.post('/register-public', async (req, res) => {
 
 router.post('/register', auth, async (req, res) => {
   try {
-
     if (req.agent.role !== 'admin') {
       return res.status(403).json({
         error: 'Фақат админ агент қўша олади'
@@ -181,6 +171,12 @@ router.post('/register', auth, async (req, res) => {
       full_name,
       phone
     } = req.body;
+
+    if (!login || !password || !full_name || !phone) {
+      return res.status(400).json({
+        error: 'Login, parol, ism va telefon kerak'
+      });
+    }
 
     const exists = await pool.query(
       'SELECT id FROM agents WHERE login=$1',
@@ -246,7 +242,6 @@ router.post('/register', auth, async (req, res) => {
 
 router.get('/agents', auth, async (req, res) => {
   try {
-
     if (req.agent.role !== 'admin') {
       return res.status(403).json({
         error: 'Фақат админ кўра олади'
@@ -255,21 +250,107 @@ router.get('/agents', auth, async (req, res) => {
 
     const { rows } = await pool.query(`
       SELECT
-      id,
-      display_id,
-      login,
-      full_name,
-      phone,
-      role,
-      trial_start,
-      trial_end,
-      is_active,
-      created_at
+        id,
+        display_id,
+        login,
+        full_name,
+        phone,
+        role,
+        trial_start,
+        trial_end,
+        is_active,
+        created_at
       FROM agents
       ORDER BY created_at DESC
     `);
 
     res.json(rows);
+
+  } catch (err) {
+    res.status(500).json({
+      error: err.message
+    });
+  }
+});
+
+/* ==========================
+   CHANGE PASSWORD
+   Agent o'zi parolini o'zgartiradi
+========================== */
+
+router.put('/change-password', auth, async (req, res) => {
+  try {
+    const agentId = req.agent.id;
+
+    const {
+      currentPassword,
+      newPassword,
+      confirmPassword
+    } = req.body;
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      return res.status(400).json({
+        error: 'Барча майдонларни тўлдиринг'
+      });
+    }
+
+    if (newPassword.length < 4) {
+      return res.status(400).json({
+        error: 'Янги пароль камида 4 та белгидан иборат бўлиши керак'
+      });
+    }
+
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({
+        error: 'Янги парольлар мос эмас'
+      });
+    }
+
+    const { rows } = await pool.query(
+      `
+      SELECT
+        id,
+        password_hash
+      FROM agents
+      WHERE id=$1
+      `,
+      [agentId]
+    );
+
+    const agent = rows[0];
+
+    if (!agent) {
+      return res.status(404).json({
+        error: 'Агент топилмади'
+      });
+    }
+
+    const valid = await bcrypt.compare(
+      currentPassword,
+      agent.password_hash
+    );
+
+    if (!valid) {
+      return res.status(400).json({
+        error: 'Ҳозирги пароль нотўғри'
+      });
+    }
+
+    const hash = await bcrypt.hash(newPassword, 10);
+
+    await pool.query(
+      `
+      UPDATE agents
+      SET password_hash=$1
+      WHERE id=$2
+      `,
+      [hash, agentId]
+    );
+
+    res.json({
+      success: true,
+      message: 'Пароль муваффақиятли ўзгартирилди'
+    });
 
   } catch (err) {
     res.status(500).json({
