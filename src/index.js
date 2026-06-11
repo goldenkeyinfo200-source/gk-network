@@ -28,7 +28,7 @@ async function tgSendMessage(chatId, text, extra = {}) {
 
   if (!token) {
     console.error('BOT_TOKEN topilmadi');
-    return;
+    return null;
   }
 
   const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -89,7 +89,8 @@ app.post('/webhook', async (req, res) => {
     if (message) {
       const chatId = message.chat.id;
       const text = message.text || '';
-      const tgId = String(message.from.id);
+
+      const tgId = Number(message.from.id);
       const username = message.from.username || null;
       const firstName = message.from.first_name || '';
       const lastName = message.from.last_name || '';
@@ -103,19 +104,34 @@ app.post('/webhook', async (req, res) => {
       });
 
       if (text.startsWith('/start')) {
-        await pool.query(
-          `
-          UPDATE agents
-          SET
-            telegram_id = $1,
-            username = COALESCE(username, $2)
-          WHERE
-            telegram_id::text = $1
-            OR username = $2
-            OR login = $2
-          `,
-          [tgId, username]
-        );
+        try {
+          if (username) {
+            await pool.query(
+              `
+              UPDATE agents
+              SET
+                telegram_id = $1,
+                username = COALESCE(username, $2)
+              WHERE
+                telegram_id = $1
+                OR username = $2
+                OR login = $2
+              `,
+              [tgId, username]
+            );
+          } else {
+            await pool.query(
+              `
+              UPDATE agents
+              SET telegram_id = $1
+              WHERE telegram_id = $1
+              `,
+              [tgId]
+            );
+          }
+        } catch (dbErr) {
+          console.error('Telegram ID saqlash xato:', dbErr);
+        }
 
         await tgSendMessage(
           chatId,
@@ -148,8 +164,7 @@ app.post('/webhook', async (req, res) => {
 
       await tgSendMessage(
         chatId,
-        `Buyruq tushunilmadi.\n\n` +
-        `Boshlash uchun /start ni bosing.`,
+        `Buyruq tushunilmadi.\n\nBoshlash uchun /start ni bosing.`
       );
 
       return res.sendStatus(200);
@@ -160,10 +175,10 @@ app.post('/webhook', async (req, res) => {
       return res.sendStatus(200);
     }
 
-    res.sendStatus(200);
+    return res.sendStatus(200);
   } catch (err) {
     console.error('Webhook error:', err);
-    res.sendStatus(200);
+    return res.sendStatus(200);
   }
 });
 
