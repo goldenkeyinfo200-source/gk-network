@@ -3,8 +3,10 @@ const pool    = require('../db/pool');
 const { auth } = require('../middleware/auth');
 const { uploadPhotos } = require('../services/cloudinary');
 const { sendPropertyPost } = require('../services/telegram');
-const { fixSpelling }      = require('../services/spellcheck');
+const spellcheck = require('../services/spellcheck');
 const multer  = require('multer');
+
+const fixSpelling = spellcheck.fixSpelling || spellcheck.spellcheckProperty || ((data) => data);
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -98,11 +100,11 @@ router.get('/:id', async (req, res) => {
     if (!rows[0]) return res.status(404).json({ error: 'Topilmadi' });
 
     const prop = rows[0];
+
     if (!prop.is_own && req.agent.role !== 'admin') {
-      // Boshqa agentning ob'yekti — maxfiy ma'lumotlar yashirin
       prop.owner_name  = null;
       prop.owner_phone = null;
-      prop.address     = prop.landmark || prop.district; // Faqat ko'cha ko'rinadi
+      prop.address     = prop.landmark || prop.district;
     }
 
     res.json(prop);
@@ -111,10 +113,10 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// POST /api/properties — yangi ob'yekt + Telegram post
+// POST /api/properties
 router.post('/', upload.array('photos', 10), async (req, res) => {
   try {
-    const {
+    let {
       purpose, property_type, rooms, area, floor, total_floors,
       price, region, district, address, landmark,
       owner_name, owner_phone, mortgage, installment, description,
@@ -125,17 +127,18 @@ router.post('/', upload.array('photos', 10), async (req, res) => {
       return res.status(400).json({ error: 'Maqsad, tur va narx majburiy' });
     }
 
-    // Imlo tuzatish
     const fixed = fixSpelling({
-      district:    district    || '',
-      landmark:    landmark    || '',
+      district: district || '',
+      landmark: landmark || '',
+      address: address || '',
       description: description || '',
     });
-    if (fixed.district)    district    = fixed.district;
-    if (fixed.landmark)    landmark    = fixed.landmark;
-    if (fixed.description) description = fixed.description;
 
-    // Rasmlarni Cloudinary ga yuklash
+    district = fixed.district || district;
+    landmark = fixed.landmark || landmark;
+    address = fixed.address || address;
+    description = fixed.description || description;
+
     let photoUrls = [];
     if (req.files?.length > 0) {
       photoUrls = await uploadPhotos(req.files);
@@ -171,7 +174,6 @@ router.post('/', upload.array('photos', 10), async (req, res) => {
 
     const property = rows[0];
 
-    // ── Telegram @gk_ipoteka kanalga post ─────────────
     const bot = req.app.get('bot');
     try {
       const ok = await sendPropertyPost(property, req.agent, bot);
@@ -181,19 +183,16 @@ router.post('/', upload.array('photos', 10), async (req, res) => {
         'UPDATE properties SET post_status=$1, posted_at=NOW() WHERE id=$2',
         [postStatus, property.id]
       );
-      property.post_status = postStatus;
 
-      if (ok) {
-        console.log(`✅ Telegram post: ${property.display_id}`);
-      } else {
-        console.warn(`⚠️  Post yuborilmadi: ${property.display_id}`);
-      }
+      property.post_status = postStatus;
     } catch (tgErr) {
       console.error('Telegram post xato:', tgErr.message);
+
       await pool.query(
         'UPDATE properties SET post_status=$1 WHERE id=$2',
         ['failed', property.id]
       );
+
       property.post_status = 'failed';
     }
 
@@ -203,13 +202,16 @@ router.post('/', upload.array('photos', 10), async (req, res) => {
   }
 });
 
-// PUT /api/properties/:id — tahrirlash
+// PUT /api/properties/:id
 router.put('/:id', async (req, res) => {
   try {
     const { rows: ex } = await pool.query(
-      'SELECT agent_id FROM properties WHERE id=$1', [req.params.id]
+      'SELECT agent_id FROM properties WHERE id=$1',
+      [req.params.id]
     );
+
     if (!ex[0]) return res.status(404).json({ error: 'Topilmadi' });
+
     if (ex[0].agent_id !== req.agent.id && req.agent.role !== 'admin') {
       return res.status(403).json({ error: "Ruxsat yo'q" });
     }
@@ -221,20 +223,19 @@ router.put('/:id', async (req, res) => {
       owner_name, owner_phone, location_url
     } = req.body;
 
-    // 'sold' → saqlash (DB da 'sold' constraint bor)
     if (status === 'archived') status = 'sold';
 
-    // Imlo tuzatish
-    if (district || landmark || description) {
-      const fixed = fixSpelling({
-        district:    district    || '',
-        landmark:    landmark    || '',
-        description: description || '',
-      });
-      if (fixed.district)    district    = fixed.district;
-      if (fixed.landmark)    landmark    = fixed.landmark;
-      if (fixed.description) description = fixed.description;
-    }
+    const fixed = fixSpelling({
+      district: district || '',
+      landmark: landmark || '',
+      address: address || '',
+      description: description || '',
+    });
+
+    district = fixed.district || district;
+    landmark = fixed.landmark || landmark;
+    address = fixed.address || address;
+    description = fixed.description || description;
 
     const { rows } = await pool.query(`
       UPDATE properties SET
@@ -261,7 +262,7 @@ router.put('/:id', async (req, res) => {
       RETURNING *
     `, [
       price || null, status || null, description || null,
-      typeof mortgage    === 'boolean' ? mortgage    : null,
+      typeof mortgage === 'boolean' ? mortgage : null,
       typeof installment === 'boolean' ? installment : null,
       address || null, landmark || null, district || null, region || null,
       purpose || null, property_type || null,
@@ -277,20 +278,21 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// POST /api/properties/:id/repost — qayta Telegram post
+// POST /api/properties/:id/repost
 router.post('/:id/repost', async (req, res) => {
   try {
-    const { rows } = await pool.query(
-      `SELECT p.*, a.full_name as agent_name, a.phone as agent_phone
-       FROM properties p JOIN agents a ON a.id = p.agent_id
-       WHERE p.id = $1 AND p.agent_id = $2`,
-      [req.params.id, req.agent.id]
-    );
+    const { rows } = await pool.query(`
+      SELECT p.*, a.full_name as agent_name, a.phone as agent_phone
+      FROM properties p
+      JOIN agents a ON a.id = p.agent_id
+      WHERE p.id = $1 AND p.agent_id = $2
+    `, [req.params.id, req.agent.id]);
+
     if (!rows[0]) return res.status(404).json({ error: 'Topilmadi' });
 
     const property = rows[0];
     const bot = req.app.get('bot');
-    const ok  = await sendPropertyPost(property, req.agent, bot);
+    const ok = await sendPropertyPost(property, req.agent, bot);
 
     await pool.query(
       'UPDATE properties SET post_status=$1, posted_at=NOW() WHERE id=$2',
@@ -303,14 +305,16 @@ router.post('/:id/repost', async (req, res) => {
   }
 });
 
-// GET /api/properties/:id/matches — mos mijozlar
+// GET /api/properties/:id/matches
 router.get('/:id/matches', async (req, res) => {
   try {
     const { rows: propRows } = await pool.query(
       'SELECT id, purpose, property_type, rooms, price, status FROM properties WHERE id=$1',
       [req.params.id]
     );
+
     const prop = propRows[0];
+
     if (!prop) return res.status(404).json({ error: 'Topilmadi' });
     if (prop.status === 'archived') return res.json([]);
 
