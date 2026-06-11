@@ -201,30 +201,46 @@ router.put('/:id', async (req, res) => {
       return res.status(403).json({ error: "Ruxsat yo'q" });
     }
 
-    let { price, status, description, mortgage, installment, address, landmark, district, region } = req.body;
+    let {
+      price, status, description, mortgage, installment,
+      address, landmark, district, region,
+      purpose, property_type, rooms, area, floor, total_floors,
+      owner_name, owner_phone
+    } = req.body;
 
     // 'sold' → saqlash (DB da 'sold' constraint bor)
     if (status === 'archived') status = 'sold';
 
     const { rows } = await pool.query(`
       UPDATE properties SET
-        price       = COALESCE($1, price),
-        status      = COALESCE($2, status),
-        description = COALESCE($3, description),
-        mortgage    = COALESCE($4, mortgage),
-        installment = COALESCE($5, installment),
-        address     = COALESCE($6, address),
-        landmark    = COALESCE($7, landmark),
-        district    = COALESCE($8, district),
-        region      = COALESCE($9, region),
-        updated_at  = NOW()
-      WHERE id = $10
+        price         = COALESCE($1,  price),
+        status        = COALESCE($2,  status),
+        description   = COALESCE($3,  description),
+        mortgage      = COALESCE($4,  mortgage),
+        installment   = COALESCE($5,  installment),
+        address       = COALESCE($6,  address),
+        landmark      = COALESCE($7,  landmark),
+        district      = COALESCE($8,  district),
+        region        = COALESCE($9,  region),
+        purpose       = COALESCE($10, purpose),
+        property_type = COALESCE($11, property_type),
+        rooms         = COALESCE($12, rooms),
+        area          = COALESCE($13, area),
+        floor         = COALESCE($14, floor),
+        total_floors  = COALESCE($15, total_floors),
+        owner_name    = COALESCE($16, owner_name),
+        owner_phone   = COALESCE($17, owner_phone),
+        updated_at    = NOW()
+      WHERE id = $18
       RETURNING *
     `, [
       price || null, status || null, description || null,
       typeof mortgage    === 'boolean' ? mortgage    : null,
       typeof installment === 'boolean' ? installment : null,
       address || null, landmark || null, district || null, region || null,
+      purpose || null, property_type || null,
+      rooms || null, area || null, floor || null, total_floors || null,
+      owner_name || null, owner_phone || null,
       req.params.id
     ]);
 
