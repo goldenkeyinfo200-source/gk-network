@@ -55,17 +55,13 @@ app.post('/webhook', async (req, res) => {
   try {
     const update = req.body;
 
-    /* ==========================
-       MESSAGE
-    ========================== */
-
     if (update.message) {
       const msg = update.message;
       const chatId = msg.chat.id;
       const text = msg.text || '';
 
       const telegramId = String(msg.from.id);
-      const username = msg.from.username || null;
+      const tgUsername = msg.from.username || null;
       const firstName = msg.from.first_name || '';
       const lastName = msg.from.last_name || '';
       const fullName = `${firstName} ${lastName}`.trim();
@@ -75,56 +71,51 @@ app.post('/webhook', async (req, res) => {
       ========================== */
 
       if (text.startsWith('/start')) {
-        // 1. Telegram userni alohida saqlab qo'yamiz
-        await pool.query(
-          `
+        await pool.query(`
           CREATE TABLE IF NOT EXISTS telegram_users (
             telegram_id TEXT PRIMARY KEY,
-            username TEXT,
+            tg_username TEXT,
             full_name TEXT,
             created_at TIMESTAMPTZ DEFAULT NOW(),
             updated_at TIMESTAMPTZ DEFAULT NOW()
           )
-          `
-        );
+        `);
 
         await pool.query(
           `
           INSERT INTO telegram_users (
             telegram_id,
-            username,
+            tg_username,
             full_name,
             updated_at
           )
           VALUES ($1, $2, $3, NOW())
           ON CONFLICT (telegram_id)
           DO UPDATE SET
-            username = EXCLUDED.username,
+            tg_username = EXCLUDED.tg_username,
             full_name = EXCLUDED.full_name,
             updated_at = NOW()
           `,
-          [telegramId, username, fullName]
+          [telegramId, tgUsername, fullName]
         );
 
-        // 2. Agar Telegram username agent loginiga teng bo'lsa — avtomatik ulaymiz
         let linkedAgent = null;
 
-        if (username) {
+        // Агар Telegram username агент login билан бир хил бўлса — автомат улайди
+        if (tgUsername) {
           const { rows } = await pool.query(
             `
             UPDATE agents
             SET telegram_id = $1
             WHERE LOWER(login) = LOWER($2)
-               OR LOWER(username) = LOWER($2)
             RETURNING id, login, full_name, phone, telegram_id
             `,
-            [telegramId, username]
+            [telegramId, tgUsername]
           );
 
           linkedAgent = rows[0] || null;
         }
 
-        // 3. Javob
         if (linkedAgent) {
           await tgSend(
             chatId,
@@ -152,40 +143,42 @@ app.post('/webhook', async (req, res) => {
               }
             }
           );
-        } else {
-          await tgSend(
-            chatId,
-            `👋 <b>Assalomu alaykum!</b>\n\n` +
-              `GK Network botiga xush kelibsiz.\n\n` +
-              `✅ Telegram ID avtomatik olindi:\n` +
-              `<code>${telegramId}</code>\n\n` +
-              `Endi GK Network Mini App ni oching va login qiling. ` +
-              `Tizim Telegram ID ni profilingizga avtomatik bog'laydi.\n\n` +
-              `📌 Bot orqali sizga quyidagilar keladi:\n` +
-              `• yangi lidlar\n` +
-              `• tayyor postlar\n` +
-              `• agentlar uchun xabarlar\n` +
-              `• admin e'lonlari\n\n` +
-              `Quyidagi tugmani bosing 👇`,
-            {
-              parse_mode: 'HTML',
-              reply_markup: {
-                inline_keyboard: [
-                  [
-                    {
-                      text: '🏠 GK Network ni ochish',
-                      web_app: {
-                        url:
-                          process.env.MINI_APP_URL ||
-                          'https://gk-frontend-one.vercel.app'
-                      }
-                    }
-                  ]
-                ]
-              }
-            }
-          );
+
+          return res.json({ ok: true });
         }
+
+        await tgSend(
+          chatId,
+          `👋 <b>Assalomu alaykum!</b>\n\n` +
+            `GK Network botiga xush kelibsiz.\n\n` +
+            `✅ Telegram ID avtomatik olindi:\n` +
+            `<code>${telegramId}</code>\n\n` +
+            `Endi GK Network Mini App ni oching va login qiling.\n` +
+            `Login qilganingizdan keyin Telegram ID profilingizga avtomatik bog'lanadi.\n\n` +
+            `📌 Bot orqali sizga quyidagilar keladi:\n` +
+            `• yangi lidlar\n` +
+            `• tayyor postlar\n` +
+            `• agentlar uchun xabarlar\n` +
+            `• admin e'lonlari\n\n` +
+            `Quyidagi tugmani bosing 👇`,
+          {
+            parse_mode: 'HTML',
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text: '🏠 GK Network ni ochish',
+                    web_app: {
+                      url:
+                        process.env.MINI_APP_URL ||
+                        'https://gk-frontend-one.vercel.app'
+                    }
+                  }
+                ]
+              ]
+            }
+          }
+        );
 
         return res.json({ ok: true });
       }
@@ -206,7 +199,6 @@ app.post('/webhook', async (req, res) => {
 
       /* ==========================
          /link login
-         Eski usul — zaxira uchun qoldiramiz
       ========================== */
 
       if (text.startsWith('/link ')) {
