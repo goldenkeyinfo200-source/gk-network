@@ -7,7 +7,7 @@ const auth = async (req, res, next) => {
     if (!token) return res.status(401).json({ error: 'Token kerak' });
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const { rows } = await pool.query(
-      'SELECT id, login, role, company_id, full_name FROM agents WHERE id = $1 AND is_active = true',
+      'SELECT id, login, role, company_id, full_name, phone, telegram_id FROM agents WHERE id = $1 AND is_active = true',
       [decoded.id]
     );
     if (!rows[0]) return res.status(401).json({ error: 'Foydalanuvchi topilmadi' });

@@ -1,10 +1,11 @@
-// telegram.js — @gk_ipoteka kanalga ob'yekt post yuborish
+// telegram.js
 
 const TYPE_UZ = {
-  apartment: '🏠 Kvartira',
-  house:     '🏡 Uy / Hovli',
-  office:    '🏢 Ofis',
-  land:      '🏗 Yer',
+  apartment:  '🏠 Kvartira',
+  house:      '🏡 Uy / Hovli',
+  office:     '🏢 Ofis',
+  land:       '🏗 Yer (Arsa)',
+  commercial: '🏬 Noturar joy',
 };
 
 const PURPOSE_UZ = {
@@ -12,106 +13,112 @@ const PURPOSE_UZ = {
   rent: '🟡 IJARAGA',
 };
 
-// Post matni yasash
-function buildPostText(property, agent) {
+function buildText(property, agent, includePrivate = false) {
   const type    = TYPE_UZ[property.property_type] || property.property_type;
   const purpose = PURPOSE_UZ[property.purpose]    || property.purpose;
   const price   = Number(property.price).toLocaleString('en-US');
 
-  let text = `${purpose}\n`;
-  text    += `${type}\n\n`;
+  let t = `${purpose}  |  ${type}\n`;
 
-  // O'lchamlar
-  const parts = [];
-  if (property.rooms)       parts.push(`🛏 ${property.rooms} xona`);
-  if (property.area)        parts.push(`📐 ${property.area} m²`);
-  if (property.floor && property.total_floors)
-    parts.push(`🏢 ${property.floor}/${property.total_floors} qavat`);
-  if (parts.length) text += parts.join('  ·  ') + '\n';
+  const dims = [];
+  if (property.rooms)                          dims.push(`🛏 ${property.rooms} xona`);
+  if (property.area)                           dims.push(`📐 ${property.area} m²`);
+  if (property.floor && property.total_floors) dims.push(`🏢 ${property.floor}/${property.total_floors} qavat`);
+  if (dims.length) t += dims.join('  ·  ') + '\n';
 
-  // Narx
-  text += `\n💰 <b>$${price}</b>`;
-  if (property.purpose === 'rent') text += '/oy';
-  text += '\n';
+  t += `\n💰 <b>$${price}</b>`;
+  if (property.purpose === 'rent') t += '/oy';
+  t += '\n';
 
-  // Manzil — faqat ko'cha nomi (uy raqami yashirin)
   const loc = [];
   if (property.region)   loc.push(property.region);
   if (property.district) loc.push(property.district);
-  if (property.landmark) loc.push(property.landmark); // Ko'cha nomi
-  if (loc.length) text += `\n📍 ${loc.join(', ')}\n`;
+  if (property.landmark) loc.push(property.landmark);
+  if (loc.length) t += `\n📍 ${loc.join(', ')}\n`;
 
-  // Qulayliklar
-  if (property.mortgage)    text += `✅ Ipoteka mumkin\n`;
-  if (property.installment) text += `✅ Muddatli to'lov\n`;
+  if (property.mortgage)    t += `✅ Ipoteka mumkin\n`;
+  if (property.installment) t += `✅ Muddatli to'lov\n`;
 
-  // Tavsif (xususiyatlar)
   if (property.description) {
-    const feats = property.description.split('\n')[0]; // Birinchi qator = chiplar
-    if (feats) text += `\n🔑 ${feats}\n`;
+    const feats = property.description.split('\n')[0];
+    if (feats) t += `\n🔑 ${feats}\n`;
   }
 
-  // Agent
-  text += `\n👤 <b>${agent.full_name || 'Agent'}</b>`;
-  if (agent.phone) text += ` · 📞 ${agent.phone}`;
-  text += `\n🆔 ${property.display_id}`;
+  t += `\n👤 <b>${agent.full_name || 'Agent'}</b>`;
+  if (agent.phone) t += `  📞 ${agent.phone}`;
+  t += `\n🆔 ${property.display_id}`;
 
-  return text;
+  // Faqat agent uchun — yashirin ma'lumotlar
+  if (includePrivate) {
+    t += '\n\n━━━━━━━━━━━━━━━━━━';
+    if (property.address)     t += `\n🗺 <b>Aniq manzil:</b> ${property.address}`;
+    if (property.owner_name)  t += `\n👤 <b>Mulkdor:</b> ${property.owner_name}`;
+    if (property.owner_phone) t += `\n📱 <b>Tel:</b> <code>${property.owner_phone}</code>`;
+  }
+
+  return t;
 }
 
-// @gk_ipoteka kanalga post yuborish
+async function sendPost(bot, chatId, text, photos) {
+  if (photos.length > 0) {
+    const media = photos.slice(0, 10).map((url, i) => ({
+      type:  'photo',
+      media: url,
+      ...(i === 0 ? { caption: text, parse_mode: 'HTML' } : {}),
+    }));
+    await bot.sendMediaGroup(chatId, media);
+  } else {
+    await bot.sendMessage(chatId, text, { parse_mode: 'HTML' });
+  }
+}
+
 async function sendPropertyPost(property, agent, bot) {
-  if (!bot) {
-    console.warn('Bot yo\'q — Telegram post yuborilmadi');
-    return false;
-  }
+  if (!bot) { console.warn('⚠️  Bot yo\'q'); return false; }
 
-  const channel = process.env.CHANNEL_PUBLIC; // @gk_ipoteka kanal ID
-  if (!channel) {
-    console.warn('CHANNEL_PUBLIC yo\'q — post yuborilmadi');
-    return false;
-  }
+  const photos     = (property.photos || []).filter(Boolean);
+  const publicText = buildText(property, agent, false);
+  const agentText  = buildText(property, agent, true);
+  let   success    = false;
 
-  const text   = buildPostText(property, agent);
-  const photos = (property.photos || []).filter(Boolean);
-
-  try {
-    if (photos.length > 0) {
-      // Rasmlar bilan post — MediaGroup
-      const media = photos.slice(0, 10).map((url, i) => ({
-        type:  'photo',
-        media: url,
-        ...(i === 0 ? { caption: text, parse_mode: 'HTML' } : {}),
-      }));
-      await bot.sendMediaGroup(channel, media);
-    } else {
-      // Faqat matn
-      await bot.sendMessage(channel, text, {
-        parse_mode: 'HTML',
-        reply_markup: {
-          inline_keyboard: [[
-            { text: '📞 Bog\'lanish', url: `https://t.me/${(agent.telegram_username || '').replace('@', '')}` },
-          ]]
-        }
-      });
+  // 1. Markaziy kanal
+  const publicChannel = process.env.CHANNEL_PUBLIC;
+  if (publicChannel) {
+    try {
+      await sendPost(bot, publicChannel, publicText, photos);
+      console.log(`✅ Kanal: ${property.display_id}`);
+      success = true;
+    } catch (err) {
+      console.error(`❌ Kanal xato:`, err.message);
     }
-
-    // Agentlar guruhi — to'liq ma'lumot (mulkdor tel ham)
-    const agentsChannel = process.env.CHANNEL_AGENTS;
-    if (agentsChannel) {
-      let agentText = text;
-      if (property.address)     agentText += `\n\n🗺 <b>Aniq manzil:</b> ${property.address}`;
-      if (property.owner_name)  agentText += `\n👤 <b>Mulkdor:</b> ${property.owner_name}`;
-      if (property.owner_phone) agentText += `\n📱 <b>Mulkdor tel:</b> ${property.owner_phone}`;
-
-      await bot.sendMessage(agentsChannel, agentText, { parse_mode: 'HTML' });
-    }
-
-    return true;
-  } catch (err) {
-    console.error('Telegram post xato:', err.message);
-    return false;
+  } else {
+    console.warn('⚠️  CHANNEL_PUBLIC yo\'q');
   }
+
+  // 2. Agentlar kanali (xuddi markaziy kanal formati)
+  const agentsChannel = process.env.CHANNEL_AGENTS;
+  if (agentsChannel) {
+    try {
+      await sendPost(bot, agentsChannel, publicText, photos);
+      console.log(`✅ Agentlar kanal: ${property.display_id}`);
+    } catch (err) {
+      console.error(`❌ Agentlar kanal xato:`, err.message);
+    }
+  }
+
+  // 3. Agentga shaxsiy (+ mulkdor tel va aniq manzil)
+  if (agent.telegram_id) {
+    try {
+      await sendPost(bot, agent.telegram_id, agentText, photos);
+      console.log(`✅ Agent shaxsiy: ${agent.full_name}`);
+      success = true;
+    } catch (err) {
+      console.error(`❌ Agent shaxsiy xato:`, err.message);
+    }
+  } else {
+    console.warn(`⚠️  telegram_id yo'q: ${agent.full_name}`);
+  }
+
+  return success;
 }
 
-module.exports = { sendPropertyPost, buildPostText };
+module.exports = { sendPropertyPost };
