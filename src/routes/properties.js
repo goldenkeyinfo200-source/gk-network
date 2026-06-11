@@ -116,7 +116,8 @@ router.post('/', upload.array('photos', 10), async (req, res) => {
     const {
       purpose, property_type, rooms, area, floor, total_floors,
       price, region, district, address, landmark,
-      owner_name, owner_phone, mortgage, installment, description
+      owner_name, owner_phone, mortgage, installment, description,
+      location_url
     } = req.body;
 
     if (!purpose || !property_type || !price) {
@@ -135,13 +136,13 @@ router.post('/', upload.array('photos', 10), async (req, res) => {
         purpose, property_type, rooms, area, floor, total_floors,
         price, region, district, address, landmark,
         owner_name, owner_phone, mortgage, installment,
-        description, photos
+        description, photos, location_url
       ) VALUES (
         gen_display_id('P','seq_property'), $1, $2,
         $3, $4, $5, $6, $7, $8,
         $9, $10, $11, $12, $13,
         $14, $15, $16, $17,
-        $18, $19
+        $18, $19, $20
       ) RETURNING *
     `, [
       req.agent.id, req.agent.company_id,
@@ -154,6 +155,7 @@ router.post('/', upload.array('photos', 10), async (req, res) => {
       installment === 'true' || installment === true,
       description || null,
       photoUrls,
+      location_url || null,
     ]);
 
     const property = rows[0];
@@ -205,7 +207,7 @@ router.put('/:id', async (req, res) => {
       price, status, description, mortgage, installment,
       address, landmark, district, region,
       purpose, property_type, rooms, area, floor, total_floors,
-      owner_name, owner_phone
+      owner_name, owner_phone, location_url
     } = req.body;
 
     // 'sold' → saqlash (DB da 'sold' constraint bor)
@@ -230,8 +232,9 @@ router.put('/:id', async (req, res) => {
         total_floors  = COALESCE($15, total_floors),
         owner_name    = COALESCE($16, owner_name),
         owner_phone   = COALESCE($17, owner_phone),
+        location_url  = COALESCE($18, location_url),
         updated_at    = NOW()
-      WHERE id = $18
+      WHERE id = $19
       RETURNING *
     `, [
       price || null, status || null, description || null,
@@ -241,6 +244,7 @@ router.put('/:id', async (req, res) => {
       purpose || null, property_type || null,
       rooms || null, area || null, floor || null, total_floors || null,
       owner_name || null, owner_phone || null,
+      location_url || null,
       req.params.id
     ]);
 
