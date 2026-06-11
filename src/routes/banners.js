@@ -1,6 +1,37 @@
 const router = require('express').Router();
+const multer = require('multer');
+const cloudinary = require('cloudinary').v2;
 const pool = require('../db/pool');
 
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+function uploadToCloudinary(buffer) {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        folder: 'gk-network/banners',
+        resource_type: 'image',
+      },
+      (error, result) => {
+        if (error) return reject(error);
+        resolve(result);
+      }
+    );
+
+    stream.end(buffer);
+  });
+}
+
+// Faqat faol va muddati mos bannerlar
 router.get('/', async (req, res) => {
   try {
     const { rows } = await pool.query(`
@@ -19,6 +50,7 @@ router.get('/', async (req, res) => {
   }
 });
 
+// Admin uchun hammasi
 router.get('/admin/all', async (req, res) => {
   try {
     const { rows } = await pool.query(`
@@ -34,6 +66,26 @@ router.get('/admin/all', async (req, res) => {
   }
 });
 
+// Rasm upload
+router.post('/upload', upload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Rasm tanlanmagan' });
+    }
+
+    const result = await uploadToCloudinary(req.file.buffer);
+
+    res.json({
+      image_url: result.secure_url,
+      public_id: result.public_id,
+    });
+  } catch (err) {
+    console.error('Banner upload error:', err);
+    res.status(500).json({ error: 'Rasm yuklashda xato' });
+  }
+});
+
+// Banner qo‘shish
 router.post('/', async (req, res) => {
   try {
     const {
@@ -44,7 +96,7 @@ router.post('/', async (req, res) => {
       image_url,
       start_date,
       end_date,
-      sort_order
+      sort_order,
     } = req.body;
 
     if (!company) {
@@ -68,7 +120,7 @@ router.post('/', async (req, res) => {
         image_url || null,
         start_date || null,
         end_date || null,
-        sort_order || 0
+        Number(sort_order || 0),
       ]
     );
 
@@ -79,6 +131,7 @@ router.post('/', async (req, res) => {
   }
 });
 
+// Banner tahrirlash
 router.put('/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -92,7 +145,7 @@ router.put('/:id', async (req, res) => {
       start_date,
       end_date,
       sort_order,
-      is_active
+      is_active,
     } = req.body;
 
     const { rows } = await pool.query(
@@ -121,7 +174,7 @@ router.put('/:id', async (req, res) => {
         end_date || null,
         sort_order ?? null,
         typeof is_active === 'boolean' ? is_active : null,
-        id
+        id,
       ]
     );
 
@@ -136,6 +189,7 @@ router.put('/:id', async (req, res) => {
   }
 });
 
+// Banner o‘chirish
 router.delete('/:id', async (req, res) => {
   try {
     await pool.query('DELETE FROM banners WHERE id=$1', [req.params.id]);
