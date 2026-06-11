@@ -17,31 +17,35 @@ function buildText(property, agent, includePrivate = false) {
   const type    = TYPE_UZ[property.property_type] || property.property_type;
   const purpose = PURPOSE_UZ[property.purpose]    || property.purpose;
   const price   = Number(property.price).toLocaleString('en-US');
-  const line    = '━━━━━━━━━━━━━━━━━';
+  const line    = '━━━━━━━━━━━━━━━━━━━━';
 
+  // Sarlavha
   let t = `${purpose}\n\n`;
-  t += `${type}\n`;
-  t += `${line}\n`;
+  t += `${type} | ${property.display_id}\n`;
+  t += `${line}\n\n`;
 
-  if (property.rooms)       t += `🛏 Xona:      ${property.rooms} ta\n`;
-  if (property.area)        t += `📐 Maydon:    ${property.area} m²\n`;
-  if (property.floor && property.total_floors)
-                            t += `🏢 Qavat:     ${property.floor} / ${property.total_floors}\n`;
-  if (property.region)      t += `📍 Shahar:    ${property.region}\n`;
-  if (property.district)    t += `🏘 Tuman:     ${property.district}\n`;
-
-  // Ko'cha — landmark dan birinchi qism
+  // Manzil
   const street = (property.landmark || '').split(' | ')[0];
   const moljal = (property.landmark || '').split(' | ')[1];
-  if (street)  t += `🛣 Ko'cha:    ${street}\n`;
-  if (moljal)  t += `🧭 Mo'ljal:   ${moljal}\n`;
+  const loc = [];
+  if (property.district) loc.push(property.district);
+  if (street)            loc.push(street);
+  if (loc.length) t += `📍 ${loc.join(', ')}\n`;
+  if (moljal)     t += `📌 Mo'ljal: ${moljal}\n`;
 
-  t += `${line}\n`;
-  t += `💰 Narx:   <b>$${price}`;
+  // O'lchamlar
+  const dims = [];
+  if (property.rooms)                          dims.push(`🛏 ${property.rooms} xona`);
+  if (property.area)                           dims.push(`📐 ${property.area} m²`);
+  if (property.floor && property.total_floors) dims.push(`🏢 ${property.floor}/${property.total_floors} qavat`);
+  if (dims.length) t += `\n${dims.join('  |  ')}\n`;
+
+  // Narx
+  t += `\n💰 <b>$${price}`;
   if (property.purpose === 'rent') t += '/oy';
   t += `</b>\n`;
-  t += `${line}\n`;
 
+  // Xususiyatlar — har biri alohida qatorda
   if (property.description) {
     const feats = property.description.split('\n')[0];
     if (feats) {
@@ -51,23 +55,29 @@ function buildText(property, agent, includePrivate = false) {
         .replace(/\s{2,}/g, ' ')
         .replace(/^,\s*|,\s*$/g, '')
         .trim();
-      if (clean) t += `🔑 ${clean}\n`;
+      if (clean) {
+        const items = clean.split(',').map(s => s.trim()).filter(Boolean);
+        if (items.length) {
+          t += `\n`;
+          items.forEach(item => { t += `・${item}\n`; });
+        }
+      }
     }
   }
 
+  // Ipoteka / Muddatli to'lov
   const extras = [];
-  if (property.mortgage)    extras.push("✅ Ipoteka");
+  if (property.mortgage)    extras.push('✅ Ipoteka');
   if (property.installment) extras.push("✅ Muddatli to'lov");
-  if (extras.length) t += extras.join('  ') + '\n';
+  if (extras.length) t += `\n${extras.join('  |  ')}\n`;
 
-  t += `${line}\n`;
-  t += `👤 <b>${agent.full_name || 'Agent'}</b>`;
-  if (agent.phone) t += `  📞 ${agent.phone}`;
-  t += `\n🆔 ${property.display_id}\n`;
-  t += line;
+  // Agent
+  t += `\n${line}\n`;
+  t += `☎️ ${agent.phone || '—'}\n`;
+  t += `👤 ${agent.full_name || 'Agent'}`;
 
   if (includePrivate) {
-    t += '\n\n━━━━━━━━━━━━━━━━━━';
+    t += `\n\n${line}`;
     if (property.address)     t += `\n🗺 <b>Aniq manzil:</b> ${property.address}`;
     if (property.owner_name)  t += `\n👤 <b>Mulkdor:</b> ${property.owner_name}`;
     if (property.owner_phone) t += `\n📱 <b>Tel:</b> <code>${property.owner_phone}</code>`;
