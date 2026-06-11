@@ -17,47 +17,55 @@ function buildText(property, agent, includePrivate = false) {
   const type    = TYPE_UZ[property.property_type] || property.property_type;
   const purpose = PURPOSE_UZ[property.purpose]    || property.purpose;
   const price   = Number(property.price).toLocaleString('en-US');
+  const line    = '━━━━━━━━━━━━━━━━━';
 
-  let t = `${purpose}  |  ${type}\n`;
+  let t = `${purpose}\n\n`;
+  t += `${type}\n`;
+  t += `${line}\n`;
 
-  const dims = [];
-  if (property.rooms)                          dims.push(`🛏 ${property.rooms} xona`);
-  if (property.area)                           dims.push(`📐 ${property.area} m²`);
-  if (property.floor && property.total_floors) dims.push(`🏢 ${property.floor}/${property.total_floors} qavat`);
-  if (dims.length) t += dims.join('  ·  ') + '\n';
+  if (property.rooms)       t += `🛏 Xona:      ${property.rooms} ta\n`;
+  if (property.area)        t += `📐 Maydon:    ${property.area} m²\n`;
+  if (property.floor && property.total_floors)
+                            t += `🏢 Qavat:     ${property.floor} / ${property.total_floors}\n`;
+  if (property.region)      t += `📍 Shahar:    ${property.region}\n`;
+  if (property.district)    t += `🏘 Tuman:     ${property.district}\n`;
 
-  t += `\n💰 <b>$${price}</b>`;
+  // Ko'cha — landmark dan birinchi qism
+  const street = (property.landmark || '').split(' | ')[0];
+  const moljal = (property.landmark || '').split(' | ')[1];
+  if (street)  t += `🛣 Ko'cha:    ${street}\n`;
+  if (moljal)  t += `🧭 Mo'ljal:   ${moljal}\n`;
+
+  t += `${line}\n`;
+  t += `💰 Narx:   <b>$${price}`;
   if (property.purpose === 'rent') t += '/oy';
-  t += '\n';
-
-  const loc = [];
-  if (property.region)   loc.push(property.region);
-  if (property.district) loc.push(property.district);
-  if (property.landmark) loc.push(property.landmark);
-  if (loc.length) t += `\n📍 ${loc.join(', ')}\n`;
-
-  if (property.mortgage)    t += `✅ Ipoteka mumkin\n`;
-  if (property.installment) t += `✅ Muddatli to'lov\n`;
+  t += `</b>\n`;
+  t += `${line}\n`;
 
   if (property.description) {
     const feats = property.description.split('\n')[0];
     if (feats) {
-      // Emoji va maxsus belgilarni olib tashlab faqat matn qoldirish
       const clean = feats
         .replace(/\p{Emoji_Presentation}\s*/gu, '')
         .replace(/\p{Extended_Pictographic}\s*/gu, '')
         .replace(/\s{2,}/g, ' ')
         .replace(/^,\s*|,\s*$/g, '')
         .trim();
-      if (clean) t += `\n🔑 ${clean}\n`;
+      if (clean) t += `🔑 ${clean}\n`;
     }
   }
 
-  t += `\n👤 <b>${agent.full_name || 'Agent'}</b>`;
-  if (agent.phone) t += `  📞 ${agent.phone}`;
-  t += `\n🆔 ${property.display_id}`;
+  const extras = [];
+  if (property.mortgage)    extras.push("✅ Ipoteka");
+  if (property.installment) extras.push("✅ Muddatli to'lov");
+  if (extras.length) t += extras.join('  ') + '\n';
 
-  // Faqat agent uchun — yashirin ma'lumotlar
+  t += `${line}\n`;
+  t += `👤 <b>${agent.full_name || 'Agent'}</b>`;
+  if (agent.phone) t += `  📞 ${agent.phone}`;
+  t += `\n🆔 ${property.display_id}\n`;
+  t += line;
+
   if (includePrivate) {
     t += '\n\n━━━━━━━━━━━━━━━━━━';
     if (property.address)     t += `\n🗺 <b>Aniq manzil:</b> ${property.address}`;
@@ -68,26 +76,8 @@ function buildText(property, agent, includePrivate = false) {
   return t;
 }
 
-async function sendPost(bot, chatId, text, photos) {
-  // Avval matn yuborish
+async function sendPost(bot, chatId, text) {
   await bot.sendMessage(chatId, text, { parse_mode: 'HTML' });
-
-  // Keyin rasmlarni alohida yuborish (har biri alohida)
-  if (photos.length > 0) {
-    try {
-      if (photos.length === 1) {
-        await bot.sendPhoto(chatId, photos[0]);
-      } else {
-        const media = photos.slice(0, 10).map(url => ({
-          type: 'photo',
-          media: url,
-        }));
-        await bot.sendMediaGroup(chatId, media);
-      }
-    } catch (photoErr) {
-      console.warn('Rasm yuborishda xato:', photoErr.message);
-    }
-  }
 }
 
 async function sendPropertyPost(property, agent, bot) {
@@ -101,7 +91,7 @@ async function sendPropertyPost(property, agent, bot) {
   // Agentga botda
   if (agent.telegram_id) {
     try {
-      await sendPost(bot, agent.telegram_id, publicText, photos);
+      await sendPost(bot, agent.telegram_id, publicText);
       console.log(`✅ Agent bot: ${agent.full_name}`);
       success = true;
     } catch (err) {
