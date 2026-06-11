@@ -9,10 +9,11 @@ const TYPE_UZ = {
 };
 
 function buildText(property, agent) {
-  const type  = TYPE_UZ[property.property_type] || property.property_type;
-  const price = Number(property.price).toLocaleString('en-US');
+  const type   = TYPE_UZ[property.property_type] || property.property_type;
+  const price  = Number(property.price).toLocaleString('en-US');
   const isLand = property.property_type === 'land';
-  const line = '━━━━━━━━━━━━━━━';
+  const isSell = property.purpose === 'sell';
+  const line   = '━━━━━━━━━━━━━━━';
 
   const street = (property.landmark || '').split(' | ')[0];
   const moljal = (property.landmark || '').split(' | ')[1];
@@ -20,44 +21,65 @@ function buildText(property, agent) {
   let t = '';
 
   // Sarlavha
-  const purposeTitle = property.purpose === 'rent' ? 'Ijaraga beriladi' : 'Sotiladi';
-  t += `🏠 ${purposeTitle}!\n\n`;
+  t += `🏠 <b>${isSell ? 'Sotiladi' : 'Ijaraga beriladi'}!</b>\n\n`;
 
-  // Asosiy ma'lumotlar
-  const loc = [];
-  if (property.region)   loc.push(property.region);
-  if (property.district) loc.push(property.district);
-  if (street)            loc.push(street);
-  if (loc.length)        t += `📍 Manzil: ${loc.join(', ')}\n`;
+  // Manzil
+  const locParts = [];
+  if (property.region)   locParts.push(property.region);
+  if (property.district) locParts.push(property.district);
+  if (street)            locParts.push(street);
+  if (locParts.length)   t += `📍 <b>Manzil:</b> ${locParts.join(', ')}\n`;
 
-  if (!isLand && property.floor) t += `🏢 Qavati: ${property.floor}${property.total_floors ? ' / ' + property.total_floors : ''}\n`;
-  if (!isLand && property.rooms) t += `🛏️ Xonalar soni: ${property.rooms}\n`;
-  t += `🏗 Mulkchilik shakli: ${type}\n`;
-  if (property.area)             t += `📏 Maydoni: ${property.area} ${isLand ? 'sotix' : 'm²'}\n`;
-  if (property.mortgage !== undefined) t += `🏦 Ipoteka: ${property.mortgage ? 'Ha' : '—'}\n`;
-  if (property.installment !== undefined) t += `💳 B/to'lov: ${property.installment ? 'Ha' : '—'}\n`;
-  if (moljal)                    t += `📌 Mo'ljal: ${moljal}\n`;
+  // Qavat
+  if (!isLand && property.floor) {
+    t += `🏢 <b>Qavati:</b> ${property.floor}${property.total_floors ? ' / ' + property.total_floors : ''}\n`;
+  }
+
+  // Xonalar
+  if (!isLand && property.rooms) {
+    t += `🛏️ <b>Xonalar soni:</b> ${property.rooms}\n`;
+  }
+
+  // Mulkchilik shakli
+  t += `🏗 <b>Mulkchilik shakli:</b> ${type}\n`;
+
+  // Maydon
+  if (property.area) {
+    t += `📏 <b>Maydoni:</b> ${property.area} ${isLand ? 'sotix' : 'm²'}\n`;
+  }
+
+  // Ipoteka — faqat "Ha" bo'lsa ko'rsatilsin
+  if (property.mortgage) {
+    t += `🏦 <b>Ipoteka:</b> Ha\n`;
+  }
+
+  // Muddatli to'lov — faqat "Ha" bo'lsa ko'rsatilsin
+  if (property.installment) {
+    t += `💳 <b>B/to'lov:</b> Ha\n`;
+  }
+
+  // Mo'ljal
+  if (moljal) {
+    t += `📌 <b>Mo'ljal:</b> ${moljal}\n`;
+  }
 
   // Qo'shimcha ma'lumotlar
   if (property.description) {
     const feats = property.description.split('\n')[0];
     if (feats && feats.trim()) {
-      t += `📝 Qo'shimcha ma'lumotlar: ${feats.trim()}\n`;
+      t += `\n📝 <b>Qo'shimcha ma'lumotlar:</b>\n${feats.trim()}\n`;
     }
   }
 
   // Narx
-  t += `\n💸 Narxi: $${price}`;
-  if (property.purpose === 'rent') t += '/oy';
-  t += '\n';
+  t += `\n💸 <b>Narxi: $${price}`;
+  if (!isSell) t += '/oy';
+  t += `</b>\n`;
 
-  // Ajratgich
+  // Ajratgich va kontakt
   t += `${line}\n`;
-
-  // Kontakt
-  t += `📞 Murojaat uchun:\n`;
+  t += `📞 <b>Murojaat uchun:</b>\n`;
   if (agent.phone) t += `☎️ ${agent.phone}\n`;
-
   t += `${line}\n`;
   t += `🆔 ${property.display_id}`;
 
