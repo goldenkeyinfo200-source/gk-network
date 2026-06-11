@@ -69,18 +69,24 @@ function buildText(property, agent, includePrivate = false) {
 }
 
 async function sendPost(bot, chatId, text, photos) {
-  // Telegram caption max 1024 belgi
-  const caption = text.length > 1024 ? text.slice(0, 1020) + '...' : text;
+  // Avval matn yuborish
+  await bot.sendMessage(chatId, text, { parse_mode: 'HTML' });
 
+  // Keyin rasmlarni alohida yuborish (har biri alohida)
   if (photos.length > 0) {
-    const media = photos.slice(0, 10).map((url, i) => ({
-      type:  'photo',
-      media: url,
-      ...(i === 0 ? { caption: caption, parse_mode: 'HTML' } : {}),
-    }));
-    await bot.sendMediaGroup(chatId, media);
-  } else {
-    await bot.sendMessage(chatId, text, { parse_mode: 'HTML' });
+    try {
+      if (photos.length === 1) {
+        await bot.sendPhoto(chatId, photos[0]);
+      } else {
+        const media = photos.slice(0, 10).map(url => ({
+          type: 'photo',
+          media: url,
+        }));
+        await bot.sendMediaGroup(chatId, media);
+      }
+    } catch (photoErr) {
+      console.warn('Rasm yuborishda xato:', photoErr.message);
+    }
   }
 }
 
