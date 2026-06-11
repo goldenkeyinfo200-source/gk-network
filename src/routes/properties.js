@@ -223,8 +223,7 @@ router.put('/:id', async (req, res) => {
       owner_name, owner_phone, location_url
     } = req.body;
 
-    if (status === 'archived') status = 'sold';
-
+    
     const fixed = fixSpelling({
       district: district || '',
       landmark: landmark || '',
