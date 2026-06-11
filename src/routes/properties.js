@@ -3,6 +3,7 @@ const pool    = require('../db/pool');
 const { auth } = require('../middleware/auth');
 const { uploadPhotos } = require('../services/cloudinary');
 const { sendPropertyPost } = require('../services/telegram');
+const { fixSpelling }      = require('../services/spellcheck');
 const multer  = require('multer');
 
 const upload = multer({
@@ -124,6 +125,16 @@ router.post('/', upload.array('photos', 10), async (req, res) => {
       return res.status(400).json({ error: 'Maqsad, tur va narx majburiy' });
     }
 
+    // Imlo tuzatish
+    const fixed = fixSpelling({
+      district:    district    || '',
+      landmark:    landmark    || '',
+      description: description || '',
+    });
+    if (fixed.district)    district    = fixed.district;
+    if (fixed.landmark)    landmark    = fixed.landmark;
+    if (fixed.description) description = fixed.description;
+
     // Rasmlarni Cloudinary ga yuklash
     let photoUrls = [];
     if (req.files?.length > 0) {
@@ -212,6 +223,18 @@ router.put('/:id', async (req, res) => {
 
     // 'sold' → saqlash (DB da 'sold' constraint bor)
     if (status === 'archived') status = 'sold';
+
+    // Imlo tuzatish
+    if (district || landmark || description) {
+      const fixed = fixSpelling({
+        district:    district    || '',
+        landmark:    landmark    || '',
+        description: description || '',
+      });
+      if (fixed.district)    district    = fixed.district;
+      if (fixed.landmark)    landmark    = fixed.landmark;
+      if (fixed.description) description = fixed.description;
+    }
 
     const { rows } = await pool.query(`
       UPDATE properties SET
