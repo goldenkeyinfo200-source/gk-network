@@ -60,11 +60,14 @@ function buildText(property, agent, includePrivate = false) {
 }
 
 async function sendPost(bot, chatId, text, photos) {
+  // Telegram caption max 1024 belgi
+  const caption = text.length > 1024 ? text.slice(0, 1020) + '...' : text;
+
   if (photos.length > 0) {
     const media = photos.slice(0, 10).map((url, i) => ({
       type:  'photo',
       media: url,
-      ...(i === 0 ? { caption: text, parse_mode: 'HTML' } : {}),
+      ...(i === 0 ? { caption: caption, parse_mode: 'HTML' } : {}),
     }));
     await bot.sendMediaGroup(chatId, media);
   } else {
