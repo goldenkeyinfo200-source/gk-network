@@ -33,7 +33,6 @@ function buildText(property, agent, includePrivate = false) {
   const loc = [];
   if (property.region)   loc.push(property.region);
   if (property.district) loc.push(property.district);
-  if (property.landmark) loc.push(property.landmark);
   if (loc.length) t += `\n📍 ${loc.join(', ')}\n`;
 
   if (property.mortgage)    t += `✅ Ipoteka mumkin\n`;
@@ -41,7 +40,11 @@ function buildText(property, agent, includePrivate = false) {
 
   if (property.description) {
     const feats = property.description.split('\n')[0];
-    if (feats) t += `\n🔑 ${feats}\n`;
+    if (feats) {
+      // Emoji ikonkalarni olib tashlash
+      const cleanFeats = feats.replace(/[\u{1F300}-\u{1FFFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]\s*/gu, '').trim();
+      if (cleanFeats) t += `\n🔑 ${cleanFeats}\n`;
+    }
   }
 
   t += `\n👤 <b>${agent.full_name || 'Agent'}</b>`;
@@ -105,17 +108,15 @@ async function sendPropertyPost(property, agent, bot) {
     }
   }
 
-  // 3. Agentga shaxsiy (+ mulkdor tel va aniq manzil)
+  // 3. Agentga botda — kanal bilan bir xil format (aniq manzil va mulkdor tel yo'q)
   if (agent.telegram_id) {
     try {
-      await sendPost(bot, agent.telegram_id, agentText, photos);
-      console.log(`✅ Agent shaxsiy: ${agent.full_name}`);
+      await sendPost(bot, agent.telegram_id, publicText, photos);
+      console.log(`✅ Agent bot: ${agent.full_name}`);
       success = true;
     } catch (err) {
-      console.error(`❌ Agent shaxsiy xato:`, err.message);
+      console.error(`❌ Agent bot xato:`, err.message);
     }
-  } else {
-    console.warn(`⚠️  telegram_id yo'q: ${agent.full_name}`);
   }
 
   return success;
