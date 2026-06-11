@@ -41,7 +41,16 @@ function buildText(property, agent, includePrivate = false) {
 
   if (property.description) {
     const feats = property.description.split('\n')[0];
-    if (feats) t += `\n🔑 ${feats}\n`;
+    if (feats) {
+      // Emoji va maxsus belgilarni olib tashlab faqat matn qoldirish
+      const clean = feats
+        .replace(/\p{Emoji_Presentation}\s*/gu, '')
+        .replace(/\p{Extended_Pictographic}\s*/gu, '')
+        .replace(/\s{2,}/g, ' ')
+        .replace(/^,\s*|,\s*$/g, '')
+        .trim();
+      if (clean) t += `\n🔑 ${clean}\n`;
+    }
   }
 
   t += `\n👤 <b>${agent.full_name || 'Agent'}</b>`;
@@ -83,32 +92,7 @@ async function sendPropertyPost(property, agent, bot) {
   const agentText  = buildText(property, agent, true);
   let   success    = false;
 
-  // 1. Markaziy kanal
-  const publicChannel = process.env.CHANNEL_PUBLIC;
-  if (publicChannel) {
-    try {
-      await sendPost(bot, publicChannel, publicText, photos);
-      console.log(`✅ Kanal: ${property.display_id}`);
-      success = true;
-    } catch (err) {
-      console.error(`❌ Kanal xato:`, err.message);
-    }
-  } else {
-    console.warn('⚠️  CHANNEL_PUBLIC yo\'q');
-  }
-
-  // 2. Agentlar kanali (xuddi markaziy kanal formati)
-  const agentsChannel = process.env.CHANNEL_AGENTS;
-  if (agentsChannel) {
-    try {
-      await sendPost(bot, agentsChannel, publicText, photos);
-      console.log(`✅ Agentlar kanal: ${property.display_id}`);
-    } catch (err) {
-      console.error(`❌ Agentlar kanal xato:`, err.message);
-    }
-  }
-
-  // 3. Agentga botda — kanal bilan bir xil format (aniq manzil va mulkdor tel yo'q)
+  // Agentga botda
   if (agent.telegram_id) {
     try {
       await sendPost(bot, agent.telegram_id, publicText, photos);
@@ -117,6 +101,8 @@ async function sendPropertyPost(property, agent, bot) {
     } catch (err) {
       console.error(`❌ Agent bot xato:`, err.message);
     }
+  } else {
+    console.warn(`⚠️  telegram_id yo'q: ${agent.full_name}`);
   }
 
   return success;
