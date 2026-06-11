@@ -1,12 +1,15 @@
-const router  = require('express').Router();
-const pool    = require('../db/pool');
+const router = require('express').Router();
+const pool = require('../db/pool');
 const { auth } = require('../middleware/auth');
 const { uploadPhotos } = require('../services/cloudinary');
 const { sendPropertyPost } = require('../services/telegram');
 const spellcheck = require('../services/spellcheck');
-const multer  = require('multer');
+const multer = require('multer');
 
-const fixSpelling = spellcheck.fixSpelling || spellcheck.spellcheckProperty || ((data) => data);
+const fixSpelling =
+  spellcheck.fixSpelling ||
+  spellcheck.spellcheckProperty ||
+  ((data) => data);
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -14,6 +17,22 @@ const upload = multer({
 });
 
 router.use(auth);
+
+function normalizeStatus(status) {
+  const map = {
+    Faol: 'active',
+    Band: 'reserved',
+    Arxivlash: 'archived',
+    Sotildi: 'sold',
+    active: 'active',
+    reserved: 'reserved',
+    archived: 'archived',
+    sold: 'sold',
+    inactive: 'inactive',
+  };
+
+  return map[status] || status || null;
+}
 
 // GET /api/properties
 router.get('/', async (req, res) => {
@@ -33,7 +52,7 @@ router.get('/', async (req, res) => {
     }
 
     if (status) {
-      params.push(status);
+      params.push(normalizeStatus(status));
       where += ` AND p.status = $${params.length}`;
     } else {
       where += ` AND p.status <> 'archived'`;
@@ -102,9 +121,9 @@ router.get('/:id', async (req, res) => {
     const prop = rows[0];
 
     if (!prop.is_own && req.agent.role !== 'admin') {
-      prop.owner_name  = null;
+      prop.owner_name = null;
       prop.owner_phone = null;
-      prop.address     = prop.landmark || prop.district;
+      prop.address = prop.landmark || prop.district;
     }
 
     res.json(prop);
@@ -175,6 +194,7 @@ router.post('/', upload.array('photos', 10), async (req, res) => {
     const property = rows[0];
 
     const bot = req.app.get('bot');
+
     try {
       const ok = await sendPropertyPost(property, req.agent, bot);
       const postStatus = ok ? 'posted' : 'failed';
@@ -223,7 +243,8 @@ router.put('/:id', async (req, res) => {
       owner_name, owner_phone, location_url
     } = req.body;
 
-    
+    status = normalizeStatus(status);
+
     const fixed = fixSpelling({
       district: district || '',
       landmark: landmark || '',
