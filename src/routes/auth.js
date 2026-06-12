@@ -504,3 +504,42 @@ router.post('/reset-password', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+/* ==========================
+   SET TELEGRAM ID (Admin)
+   Admin qo'lda telegram_id kiritadi
+========================== */
+
+router.put('/agents/:id/telegram', auth, async (req, res) => {
+  try {
+    if (req.agent.role !== 'admin') {
+      return res.status(403).json({ error: 'Faqat admin' });
+    }
+
+    const { id } = req.params;
+    const { telegram_id } = req.body;
+
+    if (!telegram_id) {
+      return res.status(400).json({ error: 'telegram_id kerak' });
+    }
+
+    // Boshqa agentda bu telegram_id bormi tekshirish
+    const exists = await pool.query(
+      'SELECT id FROM agents WHERE telegram_id=$1 AND id!=$2',
+      [telegram_id, id]
+    );
+
+    if (exists.rows.length) {
+      return res.status(400).json({ error: 'Bu Telegram ID boshqa agentga tegishli' });
+    }
+
+    await pool.query(
+      'UPDATE agents SET telegram_id=$1 WHERE id=$2',
+      [telegram_id, id]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});

@@ -154,9 +154,42 @@ app.post('/webhook', async (req, res) => {
         return res.sendStatus(200);
       }
 
+      // Agent loginini yozib o'z akkauntini bog'lashi
+      if (text.startsWith('/login ')) {
+        const loginInput = text.replace('/login ', '').trim().toLowerCase();
+        try {
+          const linkResult = await pool.query(
+            `UPDATE agents
+             SET telegram_id = $1, username = $2
+             WHERE LOWER(login) = $3
+               AND (telegram_id IS NULL OR telegram_id = $1)
+             RETURNING id, login, full_name`,
+            [tgId, username || '', loginInput]
+          );
+
+          if (linkResult.rowCount > 0) {
+            const agent = linkResult.rows[0];
+            console.log('Bot orqali bog'landi:', agent.login, '->', tgId);
+            await tgSendMessage(
+              chatId,
+              `✅ <b>${agent.full_name || agent.login}</b>, Telegram akkauntingiz muvaffaqiyatli bog'landi!\n\nEndi parolni tiklash va bildirishnomalar ishlaydi.`,
+            );
+          } else {
+            await tgSendMessage(
+              chatId,
+              `❌ <b>${loginInput}</b> logini topilmadi yoki allaqachon boshqa akkauntga bog'langan.\n\nLoginni to'g'ri kiritdingizmi?`
+            );
+          }
+        } catch (dbErr) {
+          console.error('Login orqali bog'lash xato:', dbErr.message);
+          await tgSendMessage(chatId, '❌ Xatolik yuz berdi. Qayta urinib ko'ring.');
+        }
+        return res.sendStatus(200);
+      }
+
       await tgSendMessage(
         chatId,
-        `Buyruq tushunilmadi.\n\nBoshlash uchun /start ni bosing.`
+        `Buyruq tushunilmadi.\n\n/start — botni boshlash\n/login <b>loginингиз</b> — akkauntni bog'lash`
       );
 
       return res.sendStatus(200);
