@@ -125,22 +125,35 @@ app.post('/webhook', async (req, res) => {
           console.error('Telegram ID saqlash xato:', dbErr.message);
         }
 
+        // Allaqachon bog'langanmi?
+        const alreadyLinked = await pool.query(
+          'SELECT id, full_name FROM agents WHERE telegram_id=$1',
+          [tgId]
+        );
+
+        if (alreadyLinked.rowCount === 0) {
+          await tgSendMessage(
+            chatId,
+            `Assalomu alaykum, <b>${fullName || 'agent'}</b>! \n\n` +
+            `GK Network CRM botiga xush kelibsiz.\n\n` +
+            `Akkauntingizni boghlash uchun CRM loginingizni yuboring:\n\n` +
+            `/login sizning_loginингиз\n\n` +
+            `Masalan: /login sardor85`
+          );
+          return res.sendStatus(200);
+        }
+
+        const agentName = alreadyLinked.rows[0].full_name || fullName || 'agent';
+
         await tgSendMessage(
           chatId,
-          `Assalomu alaykum, <b>${fullName || 'agent'}</b>!\n\n` +
-          `🏠 <b>GK Network</b> botiga xush kelibsiz.\n\n` +
-          `Bu yerda siz:\n` +
-          `✅ obyekt qo‘shasiz\n` +
-          `✅ mijoz qo‘shasiz\n` +
-          `✅ mos obyektlarni ko‘rasiz\n` +
-          `✅ lidlarni qabul qilasiz\n\n` +
-          `Mini App orqali ishlash uchun pastdagi tugmani bosing.`,
+          `Xush kelibsiz, <b>${agentName}</b>! Telegram akkauntingiz boghlangan.\n\nMini App orqali ishlash uchun pastdagi tugmani bosing.`,
           {
             reply_markup: {
               inline_keyboard: [
                 [
                   {
-                    text: '🏠 GK Network ochish',
+                    text: 'GK Network ochish',
                     web_app: {
                       url: process.env.MINI_APP_URL || 'https://gk-frontend-one.vercel.app',
                     },
