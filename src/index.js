@@ -101,20 +101,25 @@ app.post('/webhook', async (req, res) => {
 
       if (text.startsWith('/start')) {
         try {
-          if (username) {
-            await pool.query(
-              `
-              UPDATE agents
-              SET
-                telegram_id = $1,
-                username = COALESCE(username, $2)
-              WHERE
-                telegram_id = $1
-                OR LOWER(username) = LOWER($2)
-                OR LOWER(login) = LOWER($2)
-              `,
-              [tgId, username]
-            );
+          // Login yoki username orqali agentni topib, telegram_id saqlaymiz
+          const updateResult = await pool.query(
+            `UPDATE agents
+             SET telegram_id = $1,
+                 username    = $2
+             WHERE
+               (
+                 LOWER(login)    = LOWER($2)
+                 OR LOWER(username) = LOWER($2)
+                 OR telegram_id  = $1
+               )
+             RETURNING id, login`,
+            [tgId, username || '']
+          );
+
+          if (updateResult.rowCount > 0) {
+            console.log('Telegram ID saqlandi:', updateResult.rows[0].login, '->', tgId);
+          } else {
+            console.log('Agent topilmadi, username:', username, 'tgId:', tgId);
           }
         } catch (dbErr) {
           console.error('Telegram ID saqlash xato:', dbErr.message);
