@@ -368,3 +368,139 @@ router.get('/me', auth, async (req, res) => {
 });
 
 module.exports = router;
+/* ==========================
+   FORGOT PASSWORD
+   1-qadam: login orqali agent topiladi,
+   Telegram botga 6 xonali kod yuboriladi
+========================== */
+
+const crypto = require('crypto');
+const TelegramBot = require('node-telegram-bot-api');
+
+const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: false });
+
+// Xotirada saqlaymiz: { login -> { code, expires } }
+const resetCodes = new Map();
+
+router.post('/forgot-password', async (req, res) => {
+  try {
+    const { login } = req.body;
+
+    if (!login) {
+      return res.status(400).json({ error: 'Loginni kiriting' });
+    }
+
+    const { rows } = await pool.query(
+      'SELECT id, full_name, telegram_id FROM agents WHERE login=$1 AND is_active=true',
+      [login]
+    );
+
+    const agent = rows[0];
+
+    if (!agent) {
+      return res.status(404).json({ error: 'Foydalanuvchi topilmadi' });
+    }
+
+    if (!agent.telegram_id) {
+      return res.status(400).json({
+        error: "Bu akkauntga Telegram bog'lanmagan. Admin bilan bog'laning."
+      });
+    }
+
+    // 6 xonali tasodifiy kod
+    const code = crypto.randomInt(100000, 999999).toString();
+    const expires = Date.now() + 5 * 60 * 1000; // 5 daqiqa
+
+    resetCodes.set(login, { code, expires });
+
+    // Telegram botdan xabar yuborish
+    await bot.sendMessage(
+      agent.telegram_id,
+      `🔐 *GK Network CRM*\n\nParolni tiklash kodi:\n\n*${code}*\n\nKod 5 daqiqa davomida amal qiladi.\nAgar siz so'ramagan bo'lsangiz — e'tibor bermang.`,
+      { parse_mode: 'Markdown' }
+    );
+
+    res.json({ success: true, message: 'Telegram botga kod yuborildi' });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* ==========================
+   VERIFY RESET CODE
+   2-qadam: kod to'g'riligini tekshirish
+========================== */
+
+router.post('/verify-reset-code', async (req, res) => {
+  try {
+    const { login, code } = req.body;
+
+    if (!login || !code) {
+      return res.status(400).json({ error: 'Login va kod kerak' });
+    }
+
+    const record = resetCodes.get(login);
+
+    if (!record) {
+      return res.status(400).json({ error: "Avval kod so'rang" });
+    }
+
+    if (Date.now() > record.expires) {
+      resetCodes.delete(login);
+      return res.status(400).json({ error: "Kod muddati o'tgan. Qayta so'rang." });
+    }
+
+    if (record.code !== code) {
+      return res.status(400).json({ error: "Noto'g'ri kod" });
+    }
+
+    res.json({ success: true });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* ==========================
+   RESET PASSWORD
+   3-qadam: yangi parolni saqlash
+========================== */
+
+router.post('/reset-password', async (req, res) => {
+  try {
+    const { login, code, new_password } = req.body;
+
+    if (!login || !code || !new_password) {
+      return res.status(400).json({ error: 'Barcha maydonlar kerak' });
+    }
+
+    if (new_password.length < 4) {
+      return res.status(400).json({ error: "Parol kamida 4 ta belgi bo'lsin" });
+    }
+
+    const record = resetCodes.get(login);
+
+    if (!record || record.code !== code || Date.now() > record.expires) {
+      return res.status(400).json({ error: "Kod yaroqsiz yoki muddati o'tgan" });
+    }
+
+    const hash = await bcrypt.hash(new_password, 10);
+
+    const { rowCount } = await pool.query(
+      'UPDATE agents SET password_hash=$1 WHERE login=$2 AND is_active=true',
+      [hash, login]
+    );
+
+    if (!rowCount) {
+      return res.status(404).json({ error: 'Foydalanuvchi topilmadi' });
+    }
+
+    resetCodes.delete(login);
+
+    res.json({ success: true, message: "Parol muvaffaqiyatli o'zgartirildi" });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
