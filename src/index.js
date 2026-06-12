@@ -12,6 +12,7 @@ const clientsRoutes = require('./routes/clients');
 const leadsRoutes = require('./routes/leads');
 const adminRoutes = require('./routes/admin');
 const bannersRoutes = require('./routes/banners');
+const clientAppRoutes = require('./routes/client-app');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -125,44 +126,47 @@ app.post('/webhook', async (req, res) => {
           console.error('Telegram ID saqlash xato:', dbErr.message);
         }
 
-        // Allaqachon bog'langanmi?
-        const alreadyLinked = await pool.query(
+        const AGENT_URL  = process.env.MINI_APP_URL       || 'https://gk-frontend-one.vercel.app';
+        const CLIENT_URL = process.env.CLIENT_APP_URL    || 'https://gk-frontend-one.vercel.app/app';
+
+        // Agent ekanligini tekshiramiz
+        const agentCheck = await pool.query(
           'SELECT id, full_name FROM agents WHERE telegram_id=$1',
           [tgId]
         );
 
-        if (alreadyLinked.rowCount === 0) {
+        const isAgent = agentCheck.rowCount > 0;
+        const agentName = isAgent ? (agentCheck.rows[0].full_name || fullName) : fullName;
+
+        if (isAgent) {
+          // Agent — agent paneli tugmasi
           await tgSendMessage(
             chatId,
-            `Assalomu alaykum, <b>${fullName || 'agent'}</b>! \n\n` +
-            `GK Network CRM botiga xush kelibsiz.\n\n` +
-            `Akkauntingizni boghlash uchun CRM loginingizni yuboring:\n\n` +
-            `/login sizning_loginингиз\n\n` +
-            `Masalan: /login sardor85`
-          );
-          return res.sendStatus(200);
-        }
-
-        const agentName = alreadyLinked.rows[0].full_name || fullName || 'agent';
-
-        await tgSendMessage(
-          chatId,
-          `Xush kelibsiz, <b>${agentName}</b>! Telegram akkauntingiz boghlangan.\n\nMini App orqali ishlash uchun pastdagi tugmani bosing.`,
-          {
-            reply_markup: {
-              inline_keyboard: [
-                [
-                  {
-                    text: 'GK Network ochish',
-                    web_app: {
-                      url: process.env.MINI_APP_URL || 'https://gk-frontend-one.vercel.app',
-                    },
-                  },
+            `Xush kelibsiz, <b>${agentName}</b>! \n\nQuyidagi tugmadan panelni oching:`,
+            {
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: '🏠 Agent paneli', web_app: { url: AGENT_URL } }],
+                  [{ text: '👤 Mijoz sifatida kirish', web_app: { url: CLIENT_URL } }],
                 ],
-              ],
-            },
-          }
-        );
+              },
+            }
+          );
+        } else {
+          // Yangi foydalanuvchi — ikkala variant
+          await tgSendMessage(
+            chatId,
+            `Assalomu alaykum, <b>${fullName || 'mehmon'}</b>! \n\n🏠 <b>GK Network</b> botiga xush kelibsiz.\n\nQuyidan kerakli bo'limni tanlang:`,
+            {
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: '👤 Mijoz — obyektlarni ko\'rish', web_app: { url: CLIENT_URL } }],
+                  [{ text: '🔑 Agent — tizimga kirish', web_app: { url: AGENT_URL } }],
+                ],
+              },
+            }
+          );
+        }
 
         return res.sendStatus(200);
       }
@@ -230,6 +234,7 @@ app.use('/api/clients', clientsRoutes);
 app.use('/api/leads', leadsRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/banners', bannersRoutes);
+app.use('/api/app', clientAppRoutes);
 
 app.use((req, res) => {
   res.status(404).json({
