@@ -169,7 +169,7 @@ app.post('/webhook', async (req, res) => {
 
           if (linkResult.rowCount > 0) {
             const agent = linkResult.rows[0];
-            console.log('Bot orqali bog'landi:', agent.login, '->', tgId);
+            console.log('Bot orqali boqlandi:', agent.login, '->', tgId);
             await tgSendMessage(
               chatId,
               `✅ <b>${agent.full_name || agent.login}</b>, Telegram akkauntingiz muvaffaqiyatli bog'landi!\n\nEndi parolni tiklash va bildirishnomalar ishlaydi.`,
@@ -181,8 +181,8 @@ app.post('/webhook', async (req, res) => {
             );
           }
         } catch (dbErr) {
-          console.error('Login orqali bog'lash xato:', dbErr.message);
-          await tgSendMessage(chatId, '❌ Xatolik yuz berdi. Qayta urinib ko'ring.');
+          console.error('Login orqali boqlash xato:', dbErr.message);
+          await tgSendMessage(chatId, '❌ Xatolik yuz berdi. Qayta urinib koring.');
         }
         return res.sendStatus(200);
       }
