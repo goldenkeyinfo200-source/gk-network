@@ -8,6 +8,57 @@ const TYPE_UZ = {
   commercial: 'Noturar joy',
 };
 
+const ALLOWED_FEATURES = [
+  'Gisht',
+  'Beton',
+  'Monolit',
+  'Panel',
+  '3 metrli veranda',
+  '6 metrli veranda',
+  'Ariston',
+  'Titan',
+  'Vaillant',
+  'Otopleniye',
+  'Issiq pol',
+  'Parket',
+  'Taxta pol',
+  'Kovrolyn',
+  'Linoleum',
+  'Evro ta’mir',
+  "O'rtacha ta’mir",
+  "O'rtacha ta'mir",
+  'Bez ta’mir',
+  "Bez ta'mir",
+  'Karobka',
+  'Taxta rom/eshik',
+  'Akfa/Ekopen rom',
+  'MDF eshik',
+  'Jihozlari bilan',
+  'Jihozsiz',
+  'Wi-Fi',
+  'Kamera',
+  'Suv',
+  'Gaz',
+  'Svet',
+  'Kanalizatsiya',
+  'Lift bor',
+  'Maktab',
+  "Bog'cha",
+  'Supermarket',
+  'Parkovka',
+  "Katta yo'l yaqinida",
+];
+
+function extractButtonFeatures(description) {
+  if (!description) return [];
+
+  const text = String(description);
+
+  return ALLOWED_FEATURES.filter((feature) =>
+    text.toLowerCase().includes(feature.toLowerCase())
+  );
+}
+
 function buildText(property, agent) {
   const type = TYPE_UZ[property.property_type] || property.property_type;
   const price = Number(property.price || 0).toLocaleString('en-US');
@@ -59,15 +110,20 @@ function buildText(property, agent) {
     t += `📌 <b>Mo'ljal:</b> ${moljal}\n`;
   }
 
+  const features = extractButtonFeatures(property.description);
+
+  if (features.length) {
+    t += `\n📝 <b>Qo'shimcha ma'lumotlar:</b>\n`;
+    t += `${features.join(', ')}\n`;
+  }
+
   t += `\n💸 <b>Narxi: $${price}`;
   if (!isSell) t += '/oy';
   t += `</b>\n`;
 
   t += `${line}\n`;
   t += `📞 <b>Murojaat uchun:</b>\n`;
-  if (agent.phone) {
-    t += `☎️ ${agent.phone}\n`;
-  }
+  if (agent.phone) t += `☎️ ${agent.phone}\n`;
   t += `${line}\n`;
 
   if (property.display_id) {
@@ -79,9 +135,7 @@ function buildText(property, agent) {
 
 async function sendPost(bot, chatId, text, photos) {
   if (!photos || photos.length === 0) {
-    await bot.sendMessage(chatId, text, {
-      parse_mode: 'HTML',
-    });
+    await bot.sendMessage(chatId, text, { parse_mode: 'HTML' });
     return;
   }
 
@@ -96,12 +150,7 @@ async function sendPost(bot, chatId, text, photos) {
   const media = photos.slice(0, 10).map((url, index) => ({
     type: 'photo',
     media: url,
-    ...(index === 0
-      ? {
-          caption: text,
-          parse_mode: 'HTML',
-        }
-      : {}),
+    ...(index === 0 ? { caption: text, parse_mode: 'HTML' } : {}),
   }));
 
   await bot.sendMediaGroup(chatId, media);
@@ -158,9 +207,7 @@ async function sendPropertyPost(property, agent, bot) {
       if (hasPhotos) {
         await sendPost(bot, agent.telegram_id, text, photos);
       } else {
-        await bot.sendMessage(agent.telegram_id, text, {
-          parse_mode: 'HTML',
-        });
+        await bot.sendMessage(agent.telegram_id, text, { parse_mode: 'HTML' });
       }
 
       console.log(`✅ Agent bot: ${agent.full_name}`);
