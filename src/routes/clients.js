@@ -22,11 +22,9 @@ router.get('/', async (req, res) => {
     ];
 
     if (status) {
-      // Aniq status berilsa — shuni ko'rsat (arxiv ham ko'rinadi)
       params.push(status);
       where += ` AND c.status = $${params.length}`;
     } else {
-      // Status berilmasa — arxivdagilarni yashir
       where += ` AND c.status <> 'archived'`;
     }
 
@@ -43,6 +41,8 @@ router.get('/', async (req, res) => {
            AND p.property_type = c.property_type
            AND p.price BETWEEN COALESCE(c.budget_min, 0) AND COALESCE(c.budget_max, 999999999)
            AND (p.rooms = c.rooms OR c.rooms IS NULL)
+           AND (c.mortgage = false OR p.mortgage = true)
+           AND (c.installment = false OR p.installment = true)
         ) as matched_count
       FROM clients c
       JOIN agents a ON a.id = c.agent_id
@@ -194,6 +194,8 @@ router.get('/:id/matches', async (req, res) => {
         AND p.property_type = $3
         AND p.price BETWEEN $4 AND $5
         AND ($6::int IS NULL OR p.rooms = $6)
+        AND ($7::boolean = false OR p.mortgage = true)
+        AND ($8::boolean = false OR p.installment = true)
       ORDER BY p.agent_id = $1 DESC, p.created_at DESC
     `, [
       req.agent.id,
@@ -201,7 +203,9 @@ router.get('/:id/matches', async (req, res) => {
       client.property_type,
       client.budget_min || 0,
       client.budget_max || 999999999,
-      client.rooms || null
+      client.rooms || null,
+      client.mortgage || false,
+      client.installment || false,
     ]);
 
     res.json(rows);
