@@ -192,19 +192,17 @@ router.post('/', upload.array('photos', 10), async (req, res) => {
     ]);
 
     const property = rows[0];
-
     const bot = req.app.get('bot');
 
     try {
       const ok = await sendPropertyPost(property, req.agent, bot);
-      const postStatus = ok ? 'posted' : 'failed';
 
       await pool.query(
         'UPDATE properties SET post_status=$1, posted_at=NOW() WHERE id=$2',
-        [postStatus, property.id]
+        [ok ? 'posted' : 'failed', property.id]
       );
 
-      property.post_status = postStatus;
+      property.post_status = ok ? 'posted' : 'failed';
     } catch (tgErr) {
       console.error('Telegram post xato:', tgErr.message);
 
@@ -223,10 +221,10 @@ router.post('/', upload.array('photos', 10), async (req, res) => {
 });
 
 // PUT /api/properties/:id
-router.put('/:id', async (req, res) => {
+router.put('/:id', upload.array('photos', 10), async (req, res) => {
   try {
     const { rows: ex } = await pool.query(
-      'SELECT agent_id FROM properties WHERE id=$1',
+      'SELECT agent_id, photos FROM properties WHERE id=$1',
       [req.params.id]
     );
 
@@ -234,6 +232,24 @@ router.put('/:id', async (req, res) => {
 
     if (ex[0].agent_id !== req.agent.id && req.agent.role !== 'admin') {
       return res.status(403).json({ error: "Ruxsat yo'q" });
+    }
+
+    let photos = Array.isArray(ex[0].photos) ? ex[0].photos : [];
+
+    let deletedPhotos = [];
+    try {
+      deletedPhotos = JSON.parse(req.body.deletedPhotos || '[]');
+    } catch {
+      deletedPhotos = [];
+    }
+
+    if (Array.isArray(deletedPhotos) && deletedPhotos.length > 0) {
+      photos = photos.filter(photo => !deletedPhotos.includes(photo));
+    }
+
+    if (req.files?.length > 0) {
+      const newPhotoUrls = await uploadPhotos(req.files);
+      photos = [...photos, ...newPhotoUrls].slice(0, 10);
     }
 
     let {
@@ -257,6 +273,12 @@ router.put('/:id', async (req, res) => {
     address = fixed.address || address;
     description = fixed.description || description;
 
+    const parseBool = (value) => {
+      if (value === true || value === 'true') return true;
+      if (value === false || value === 'false') return false;
+      return null;
+    };
+
     const { rows } = await pool.query(`
       UPDATE properties SET
         price         = COALESCE($1,  price),
@@ -277,18 +299,30 @@ router.put('/:id', async (req, res) => {
         owner_name    = COALESCE($16, owner_name),
         owner_phone   = COALESCE($17, owner_phone),
         location_url  = COALESCE($18, location_url),
+        photos        = $19,
         updated_at    = NOW()
-      WHERE id = $19
+      WHERE id = $20
       RETURNING *
     `, [
-      price || null, status || null, description || null,
-      typeof mortgage === 'boolean' ? mortgage : null,
-      typeof installment === 'boolean' ? installment : null,
-      address || null, landmark || null, district || null, region || null,
-      purpose || null, property_type || null,
-      rooms || null, area || null, floor || null, total_floors || null,
-      owner_name || null, owner_phone || null,
+      price || null,
+      status || null,
+      description || null,
+      parseBool(mortgage),
+      parseBool(installment),
+      address || null,
+      landmark || null,
+      district || null,
+      region || null,
+      purpose || null,
+      property_type || null,
+      rooms || null,
+      area || null,
+      floor || null,
+      total_floors || null,
+      owner_name || null,
+      owner_phone || null,
       location_url || null,
+      photos,
       req.params.id
     ]);
 
