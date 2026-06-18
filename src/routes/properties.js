@@ -335,18 +335,40 @@ router.put('/:id', upload.array('photos', 10), async (req, res) => {
 // POST /api/properties/:id/repost
 router.post('/:id/repost', async (req, res) => {
   try {
+    // Avval obyekt mavjudligini va ruxsatni tekshiramiz
+    const { rows: ex } = await pool.query(
+      'SELECT agent_id FROM properties WHERE id = $1',
+      [req.params.id]
+    );
+
+    if (!ex[0]) return res.status(404).json({ error: 'Topilmadi' });
+
+    const isOwn = ex[0].agent_id === req.agent.id;
+    const isAdmin = req.agent.role === 'admin';
+
+    if (!isOwn && !isAdmin) {
+      return res.status(403).json({ error: "Ruxsat yo'q" });
+    }
+
     const { rows } = await pool.query(`
-      SELECT p.*, a.full_name as agent_name, a.phone as agent_phone
+      SELECT p.*, a.full_name as agent_name, a.phone as agent_phone, a.telegram_id as agent_telegram_id
       FROM properties p
       JOIN agents a ON a.id = p.agent_id
-      WHERE p.id = $1 AND p.agent_id = $2
-    `, [req.params.id, req.agent.id]);
+      WHERE p.id = $1
+    `, [req.params.id]);
 
     if (!rows[0]) return res.status(404).json({ error: 'Topilmadi' });
 
     const property = rows[0];
+    const agentForPost = {
+      id: property.agent_id,
+      full_name: property.agent_name,
+      phone: property.agent_phone,
+      telegram_id: property.agent_telegram_id,
+    };
+
     const bot = req.app.get('bot');
-    const ok = await sendPropertyPost(property, req.agent, bot);
+    const ok = await sendPropertyPost(property, agentForPost, bot);
 
     await pool.query(
       'UPDATE properties SET post_status=$1, posted_at=NOW() WHERE id=$2',
