@@ -86,40 +86,82 @@ function buildText(property, agent) {
   return t;
 }
 
-async function sendPost(bot, chatId, text) {
-  await bot.sendMessage(chatId, text, { parse_mode: 'HTML' });
+// Rasm(lar) bilan post yuborish.
+// Agar bitta rasm bo'lsa — sendPhoto (caption bilan).
+// Agar bir nechta rasm bo'lsa — sendMediaGroup (faqat birinchisida caption bo'ladi).
+async function sendPost(bot, chatId, text, photos) {
+  if (!photos || photos.length === 0) {
+    // Bu funksiya endi rasm bo'lmasa chaqirilmaydi, lekin xavfsizlik uchun qoldiramiz
+    await bot.sendMessage(chatId, text, { parse_mode: 'HTML' });
+    return;
+  }
+
+  if (photos.length === 1) {
+    await bot.sendPhoto(chatId, photos[0], {
+      caption: text,
+      parse_mode: 'HTML',
+    });
+    return;
+  }
+
+  // Telegram media group da max 10 ta rasm bo'ladi
+  const media = photos.slice(0, 10).map((url, i) => ({
+    type: 'photo',
+    media: url,
+    ...(i === 0 ? { caption: text, parse_mode: 'HTML' } : {}),
+  }));
+
+  await bot.sendMediaGroup(chatId, media);
 }
 
 async function sendPropertyPost(property, agent, bot) {
   if (!bot) { console.warn("⚠️ Bot yo'q"); return false; }
 
+  const photos = Array.isArray(property.photos) ? property.photos.filter(Boolean) : [];
+  const hasPhotos = photos.length > 0;
+
   const text = buildText(property, agent);
   let success = false;
 
+  // MARKAZIY KANAL — faqat rasm bo'lsa yuboriladi
   const publicChannel = process.env.CHANNEL_PUBLIC;
   if (publicChannel) {
-    try {
-      await sendPost(bot, publicChannel, text);
-      console.log(`✅ Kanal: ${property.display_id}`);
-      success = true;
-    } catch (err) {
-      console.error(`❌ Kanal xato:`, err.message);
+    if (hasPhotos) {
+      try {
+        await sendPost(bot, publicChannel, text, photos);
+        console.log(`✅ Kanal: ${property.display_id}`);
+        success = true;
+      } catch (err) {
+        console.error(`❌ Kanal xato:`, err.message);
+      }
+    } else {
+      console.warn(`⚠️ Rasm yo'q, markaziy kanalga yuborilmadi: ${property.display_id}`);
     }
   }
 
+  // AGENTLAR KANALI — faqat rasm bo'lsa yuboriladi
   const agentsChannel = process.env.CHANNEL_AGENTS;
   if (agentsChannel) {
-    try {
-      await sendPost(bot, agentsChannel, text);
-      console.log(`✅ Agentlar kanal: ${property.display_id}`);
-    } catch (err) {
-      console.error(`❌ Agentlar kanal xato:`, err.message);
+    if (hasPhotos) {
+      try {
+        await sendPost(bot, agentsChannel, text, photos);
+        console.log(`✅ Agentlar kanal: ${property.display_id}`);
+      } catch (err) {
+        console.error(`❌ Agentlar kanal xato:`, err.message);
+      }
+    } else {
+      console.warn(`⚠️ Rasm yo'q, agentlar kanaliga yuborilmadi: ${property.display_id}`);
     }
   }
 
+  // AGENTGA SHAXSIY BOT XABARI — rasm bo'lmasa ham yuboriladi
   if (agent.telegram_id) {
     try {
-      await sendPost(bot, agent.telegram_id, text);
+      if (hasPhotos) {
+        await sendPost(bot, agent.telegram_id, text, photos);
+      } else {
+        await bot.sendMessage(agent.telegram_id, text, { parse_mode: 'HTML' });
+      }
       console.log(`✅ Agent bot: ${agent.full_name}`);
       success = true;
     } catch (err) {
