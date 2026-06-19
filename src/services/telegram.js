@@ -187,37 +187,8 @@ async function sendPropertyPost(property, agent, bot) {
     }
   }
 
-  const agentsChannel = process.env.CHANNEL_AGENTS;
+  // CHANNEL_AGENTS endi ishlatilmaydi — har agent o'z kanaliga yuboradi
 
-  if (agentsChannel) {
-    if (hasPhotos) {
-      try {
-        await sendPost(bot, agentsChannel, text, photos);
-        console.log(`✅ Agentlar kanal: ${property.display_id}`);
-      } catch (err) {
-        console.error('❌ Agentlar kanal xato:', err.message);
-      }
-    } else {
-      console.warn(`⚠️ Rasm yo'q, agentlar kanaliga yuborilmadi: ${property.display_id}`);
-    }
-  }
-
-  // Agent shaxsiy kanaliga yuborish
-  if (agent.channel) {
-    if (hasPhotos) {
-      try {
-        await sendPost(bot, agent.channel, text, photos);
-        console.log(`✅ Agent kanal (${agent.channel}): ${property.display_id}`);
-        success = true;
-      } catch (err) {
-        console.error(`❌ Agent kanal xato (${agent.channel}):`, err.message);
-      }
-    } else {
-      console.warn(`⚠️ Rasm yo'q, agent kanaliga yuborilmadi: ${agent.channel}`);
-    }
-  }
-
-  // Agent shaxsiy botiga yuborish
   if (agent.telegram_id) {
     try {
       if (hasPhotos) {
