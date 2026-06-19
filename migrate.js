@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS agents (
   phone TEXT,
   company_id UUID REFERENCES companies(id),
   role TEXT DEFAULT 'agent' CHECK (role IN ('admin','agent','company')),
+  channel TEXT,
   is_active BOOLEAN DEFAULT true,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -160,6 +161,10 @@ async function migrate() {
     console.log('Bazaga ulanmoqda...');
     await pool.query(schema);
     console.log('✅ Barcha jadvallar yaratildi!');
+
+    // Add channel column if not exists (for existing databases)
+    await pool.query(`ALTER TABLE agents ADD COLUMN IF NOT EXISTS channel TEXT`);
+    console.log('✅ agents.channel ustuni tayyor');
 
     // Test admin user
     const bcrypt = require('bcryptjs');

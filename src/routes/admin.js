@@ -12,7 +12,7 @@ router.get('/agents', async (req, res) => {
     const { rows } = await pool.query(`
       SELECT
         a.id, a.display_id, a.login, a.full_name, a.phone,
-        a.role, a.is_active, a.telegram_id, a.username,
+        a.role, a.is_active, a.telegram_id, a.username, a.channel,
         a.trial_start, a.trial_end,
         a.plan, a.plan_start, a.plan_end,
         a.created_at,
@@ -218,7 +218,7 @@ router.put('/agents/:id/telegram', async (req, res) => {
 // ─── POST /api/admin/agents ───────────────────────────────
 router.post('/agents', async (req, res) => {
   try {
-    const { login, password, full_name, phone, plan, days } = req.body;
+    const { login, password, full_name, phone, channel, plan, days } = req.body;
     if (!login || !password) return res.status(400).json({ error: 'Login va parol kerak' });
 
     const exists = await pool.query('SELECT id FROM agents WHERE login=$1', [login]);
@@ -229,17 +229,17 @@ router.post('/agents', async (req, res) => {
 
     const { rows } = await pool.query(`
       INSERT INTO agents (
-        display_id, login, password_hash, full_name, phone, role,
+        display_id, login, password_hash, full_name, phone, channel, role,
         trial_start, trial_end, is_active,
         plan, plan_start, plan_end
       ) VALUES (
-        gen_display_id('AG','seq_agent'), $1, $2, $3, $4, 'agent',
+        gen_display_id('AG','seq_agent'), $1, $2, $3, $4, $6, 'agent',
         NOW(), NOW() + INTERVAL '${plan === 'trial' ? planDays : 14} days', true,
         $5,
         CASE WHEN $5 IS NOT NULL THEN NOW() ELSE NULL END,
         CASE WHEN $5 IS NOT NULL THEN NOW() + INTERVAL '${planDays} days' ELSE NULL END
-      ) RETURNING id, display_id, login, full_name, phone, role, is_active, trial_end, plan
-    `, [login, hash, full_name || '', phone || '', plan || null]);
+      ) RETURNING id, display_id, login, full_name, phone, channel, role, is_active, trial_end, plan
+    `, [login, hash, full_name || '', phone || '', plan || null, channel || null]);
 
     res.status(201).json(rows[0]);
   } catch (err) {
@@ -347,6 +347,20 @@ router.post('/report', async (req, res) => {
       expired_today: expiredToday.length,
       expiring_soon: expiringSoon.length,
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── PUT /api/admin/agents/:id/channel ───────────────────
+router.put('/agents/:id/channel', async (req, res) => {
+  try {
+    const { channel } = req.body;
+    await pool.query(
+      'UPDATE agents SET channel=$1 WHERE id=$2',
+      [channel || null, req.params.id]
+    );
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
