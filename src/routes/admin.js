@@ -70,7 +70,7 @@ router.get('/stats', async (req, res) => {
   }
 });
 
-// ─── GET /api/admin/client-stats — Mini App mijozlar ─────
+// ─── GET /api/admin/client-stats ─────────────────────────
 router.get('/client-stats', async (req, res) => {
   try {
     const { rows } = await pool.query(`
@@ -80,14 +80,12 @@ router.get('/client-stats', async (req, res) => {
         (SELECT COUNT(*) FROM app_clients WHERE created_at >= date_trunc('week', NOW())) AS this_week,
         (SELECT COUNT(*) FROM app_applications) AS applications
     `);
-
     const { rows: recent } = await pool.query(`
       SELECT full_name, phone, telegram_id, created_at
       FROM app_clients
       ORDER BY created_at DESC
       LIMIT 10
     `);
-
     res.json({ ...rows[0], recent });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -95,6 +93,9 @@ router.get('/client-stats', async (req, res) => {
 });
 
 // ─── PUT /api/admin/agents/:id/toggle ────────────────────
+// Faqat is_active ni o'zgartiradi (obuna muddatiga tegmaydi)
+// Muddati tugagan agent is_active=false bo'lsa ham, admin qayta yoqishi mumkin
+// lekin obuna muddatini uzaytirish uchun /plan endpointidan foydalanish kerak
 router.put('/agents/:id/toggle', async (req, res) => {
   try {
     const { rows } = await pool.query(
@@ -291,6 +292,30 @@ router.post('/report', async (req, res) => {
         )
     `);
 
+    // Bugun muddati tugagan agentlarni avtomatik bloklash
+    if (expiredToday.length > 0) {
+      await pool.query(`
+        UPDATE agents SET is_active = false
+        WHERE role != 'admin'
+          AND (
+            (plan IS NULL AND trial_end::date = CURRENT_DATE)
+            OR (plan IS NOT NULL AND plan_end::date = CURRENT_DATE)
+          )
+      `);
+
+      // Har biriga Telegram xabar yuborish
+      if (tgSend) {
+        for (const a of expiredToday) {
+          if (a.telegram_id) {
+            await tgSend(a.telegram_id,
+              `🚫 <b>Obuna muddati tugadi!</b>\n\nGK Network tizimiga kirish to'xtatildi.\n\nDavom etish uchun admin bilan bog'laning va to'lovni amalga oshiring.\n\n📞 Admin: @gknetwork_admin`,
+              { parse_mode: 'HTML' }
+            );
+          }
+        }
+      }
+    }
+
     let report = `📊 <b>GK Network — Kunlik Hisobot</b>\n`;
     report += `📅 ${new Date().toLocaleDateString('uz-UZ')}\n\n`;
     report += `👥 <b>Agentlar:</b>\n`;
@@ -308,7 +333,7 @@ router.post('/report', async (req, res) => {
     report += `  • Bugun arizalar: ${s.app_applications_today}\n`;
 
     if (expiredToday.length > 0) {
-      report += `\n⚠️ <b>Bugun muddati tugadi (${expiredToday.length} ta):</b>\n`;
+      report += `\n🚫 <b>Bugun bloklandi (${expiredToday.length} ta):</b>\n`;
       expiredToday.forEach(a => {
         report += `  • ${a.full_name || a.login}`;
         if (a.phone) report += ` · ${a.phone}`;
@@ -328,6 +353,7 @@ router.post('/report', async (req, res) => {
       await tgSend(adminChatId, report, { parse_mode: 'HTML' });
     }
 
+    // 3 kun ichida tugaydiganlarga eslatma
     if (tgSend) {
       for (const a of expiringSoon) {
         if (a.telegram_id) {

@@ -5,13 +5,42 @@ const auth = async (req, res, next) => {
   try {
     const token = req.headers.authorization?.split(' ')[1];
     if (!token) return res.status(401).json({ error: 'Token kerak' });
+
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
     const { rows } = await pool.query(
-      'SELECT id, login, role, company_id, full_name, phone, telegram_id FROM agents WHERE id = $1 AND is_active = true',
+      `SELECT
+        id, login, role, company_id, full_name, phone, telegram_id,
+        is_active,
+        plan,
+        plan_end,
+        trial_end,
+        CASE
+          WHEN role = 'admin'              THEN true
+          WHEN plan IN ('pro','corporate') AND plan_end > NOW() THEN true
+          WHEN plan IS NULL AND trial_end > NOW()              THEN true
+          ELSE false
+        END as subscription_active
+       FROM agents
+       WHERE id = $1 AND is_active = true`,
       [decoded.id]
     );
-    if (!rows[0]) return res.status(401).json({ error: 'Foydalanuvchi topilmadi' });
-    req.agent = rows[0];
+
+    if (!rows[0]) {
+      return res.status(401).json({ error: 'Foydalanuvchi topilmadi yoki hisobi o\'chirilgan' });
+    }
+
+    const agent = rows[0];
+
+    // Admin har doim o'ta oladi
+    if (agent.role !== 'admin' && !agent.subscription_active) {
+      return res.status(403).json({
+        error: 'subscription_expired',
+        message: 'Obuna muddati tugagan. Iltimos, admin bilan bog\'laning.'
+      });
+    }
+
+    req.agent = agent;
     next();
   } catch (err) {
     res.status(401).json({ error: 'Token yaroqsiz' });
