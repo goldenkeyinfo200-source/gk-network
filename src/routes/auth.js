@@ -69,7 +69,9 @@ router.post('/login', async (req, res) => {
         role: agent.role,
         company_id: agent.company_id,
         trial_start: agent.trial_start,
-        trial_end: agent.trial_end
+        trial_end: agent.trial_end,
+        plan: agent.plan || null,
+        plan_end: agent.plan_end || null,
       }
     });
   } catch (err) {
