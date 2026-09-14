@@ -1,3 +1,4 @@
+// Railway redeploy trigger 2026-09-14
 const TelegramBot = require('node-telegram-bot-api');
 require('dotenv').config();
 
