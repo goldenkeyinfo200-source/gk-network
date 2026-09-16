@@ -21,41 +21,68 @@ const PURPOSE_UZ = {
 };
 
 // Obyekt uchun asosiy post matni
+function toLatin(value) {
+  if (value === null || value === undefined) return '';
+  const map = {
+    'А':'A','а':'a','Б':'B','б':'b','В':'V','в':'v','Г':'G','г':'g',
+    'Д':'D','д':'d','Е':'E','е':'e','Ё':'Yo','ё':'yo','Ж':'J','ж':'j',
+    'З':'Z','з':'z','И':'I','и':'i','Й':'Y','й':'y','К':'K','к':'k',
+    'Л':'L','л':'l','М':'M','м':'m','Н':'N','н':'n','О':'O','о':'o',
+    'П':'P','п':'p','Р':'R','р':'r','С':'S','с':'s','Т':'T','т':'t',
+    'У':'U','у':'u','Ф':'F','ф':'f','Х':'X','х':'x','Ц':'Ts','ц':'ts',
+    'Ч':'Ch','ч':'ch','Ш':'Sh','ш':'sh','Щ':'Sh','щ':'sh','Ъ':'','ъ':'',
+    'Ы':'I','ы':'i','Ь':'','ь':'','Э':'E','э':'e','Ю':'Yu','ю':'yu',
+    'Я':'Ya','я':'ya','Ў':'O‘','ў':'o‘','Қ':'Q','қ':'q','Ғ':'G‘','ғ':'g‘',
+    'Ҳ':'H','ҳ':'h'
+  };
+  return String(value).split('').map(ch => map[ch] ?? ch).join('');
+}
+
+const TYPE_UZ = {
+  apartment: '🏠 Kvartira',
+  house: '🏡 Hovli',
+  office: '🏢 Ofis',
+  land: '🏗 Yer uchastkasi'
+};
+
+const PURPOSE_UZ = {
+  sell: 'SOTILADI',
+  rent: 'IJARAGA'
+};
+
 function buildPropertyBaseText(property) {
-  const type = TYPE_UZ[property.property_type] || property.property_type;
-  const purpose = PURPOSE_UZ[property.purpose] || property.purpose;
+  const type = TYPE_UZ[property.property_type] || toLatin(property.property_type);
+  const purpose = PURPOSE_UZ[property.purpose] || toLatin(property.purpose);
   const price = Number(property.price).toLocaleString('uz-UZ');
 
-  let text = `<b>${purpose}</b> ${type}\n\n`;
+  let text = `🏷 <b>${purpose}</b> ${type}\n\n`;
 
-  if (property.region || property.district) {
-    text += `📍 <b>Манзил:</b> ${[property.region, property.district].filter(Boolean).join(', ')}\n`;
+  if (property.address || property.region || property.district) {
+    const address = property.address || [property.region, property.district].filter(Boolean).join(', ');
+    text += `📍 <b>Manzil:</b> ${toLatin(address)}\n`;
   }
+  if (property.floor && property.total_floors) {
+    text += `🏢 Qavat: ${property.floor}/${property.total_floors}\n`;
+  }
+  if (property.rooms) text += `🛏 Xonalar soni: ${property.rooms} ta\n`;
+  if (property.area) text += `📐 Maydoni: ${property.area} m²\n`;
 
-  const details = [];
-  if (property.rooms) details.push(`🛏 ${property.rooms} хона`);
-  if (property.area) details.push(`📐 ${property.area} м²`);
-  if (property.floor && property.total_floors) details.push(`🏢 ${property.floor}/${property.total_floors} қават`);
-  if (details.length) text += `${details.join('  |  ')}\n`;
-
-  text += `\n💰 <b>Нархи: $${price}</b>\n`;
-
-  const options = [];
-  if (property.mortgage) options.push('Ипотека мумкин');
-  if (property.installment) options.push('Муддатли тўлов');
-  if (options.length) text += `\n✅ ${options.join('  |  ')}\n`;
+  if (property.landmark) text += `📌 Mo‘ljal: ${toLatin(property.landmark)}\n`;
+  if (property.mortgage) text += `✅ Ipoteka mumkin\n`;
+  if (property.installment) text += `✅ Muddatli to‘lov\n`;
 
   if (property.description) {
-    text += `\n📝 <b>Қўшимча маълумотлар:</b>\n${property.description}\n`;
+    text += `\n📝 <b>Qo‘shimcha ma’lumotlar:</b>\n${toLatin(property.description)}\n`;
   }
 
+  text += `\n💰 <b>Narxi: $${price}</b>\n`;
   return text;
 }
 
 // Ommaviy kanal posti: agent telefoni o'rniga Golden Key Info raqami chiqadi
 function buildPublicPostText(property) {
   let text = buildPropertyBaseText(property);
-  text += `\n📞 <b>Мурожаат учун:</b> ${PUBLIC_PHONE}`;
+  text += `\n📞 <b>Murojaat uchun:</b> ${PUBLIC_PHONE}`;
   text += `\n🆔 ${property.display_id}`;
   return text;
 }
@@ -64,13 +91,13 @@ function buildPublicPostText(property) {
 function buildAgentPostText(property, agent) {
   let text = buildPropertyBaseText(property);
 
-  text += `\n👤 <b>${agent.full_name || 'Агент'}</b>`;
-  if (agent.phone) text += ` · 📞 ${agent.phone}`;
+  text += `\n👤 <b>${toLatin(agent.full_name || 'Agent')}</b>`;
+  if (agent.phone) text += ` · 📞 ${toLatin(agent.phone)}`;
   text += `\n🆔 ${property.display_id}`;
 
-  if (property.address) text += `\n🗺 <b>Манзил:</b> ${property.address}`;
-  if (property.owner_name) text += `\n👤 <b>Эгаси:</b> ${property.owner_name}`;
-  if (property.owner_phone) text += `\n📱 <b>Эгаси тел:</b> ${property.owner_phone}`;
+  if (property.address) text += `\n🗺 <b>Manzil:</b> ${toLatin(property.address)}`;
+  if (property.owner_name) text += `\n👤 <b>Egasi:</b> ${toLatin(property.owner_name)}`;
+  if (property.owner_phone) text += `\n📱 <b>Egasi tel:</b> ${toLatin(property.owner_phone)}`;
 
   return text;
 }
@@ -121,14 +148,14 @@ async function sendProjectPost(project, company) {
   if (!process.env.CHANNEL_NEWBUILDS) return;
 
   const available = project.total_units - project.sold_units;
-  let text = `🏗 <b>ЯНГИ БИНО</b>\n`;
+  let text = `🏗 <b>YANGI BINO</b>\n`;
   text += `<b>${project.name}</b>\n\n`;
 
   if (project.region) text += `📍 ${project.region}\n`;
-  text += `🏠 Жами: ${project.total_units} та\n`;
-  text += `✅ Мавжуд: <b>${available} та</b>\n`;
+  text += `🏠 Jami: ${project.total_units} та\n`;
+  text += `✅ Mavjud: <b>${available} та</b>\n`;
   if (project.delivery_date) {
-    text += `📅 Топшириш: ${new Date(project.delivery_date).toLocaleDateString('uz-UZ')}\n`;
+    text += `📅 Topshirish: ${new Date(project.delivery_date).toLocaleDateString('uz-UZ')}\n`;
   }
   if (project.description) text += `\n📝 ${project.description}\n`;
   text += `\n🏢 <b>${company.name}</b>`;
