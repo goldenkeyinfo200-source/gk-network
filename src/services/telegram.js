@@ -1,39 +1,39 @@
-// Railway redeploy trigger 2026-09-14
+// Railway redeploy trigger 2026-09-16
 const TelegramBot = require('node-telegram-bot-api');
 require('dotenv').config();
 
-const bot = new TelegramBot(process.env.BOT_TOKEN);
+// --- Botni xavfsiz ishga tushirish ---
+// BOT_TOKEN noto'g'ri yoki yo'q bo'lsa ham, bu fayl butun serverni
+// (index.js / routes/properties.js orqali) qulatib qo'ymasligi kerak.
+let bot = null;
+if (process.env.BOT_TOKEN) {
+  try {
+    bot = new TelegramBot(process.env.BOT_TOKEN);
+  } catch (err) {
+    console.error('[telegram.js] Botni ishga tushirishda xatolik:', err.message);
+  }
+} else {
+  console.warn('[telegram.js] BOT_TOKEN topilmadi — Telegram funksiyalari o\'chirilgan.');
+}
 
 // Ommaviy kanal uchun Golden Key Info telefon raqami.
 // Railway Variables ichida PUBLIC_PHONE bersangiz, keyinchalik kodni o'zgartirmasdan almashtirish mumkin.
 const PUBLIC_PHONE = process.env.PUBLIC_PHONE || '+998 99 999 79 73';
 
-const TYPE_UZ = {
-  apartment: '🏠 Квартира',
-  house: '🏡 Ҳовли',
-  office: '🏢 Офис',
-  land: '🏗 Ер участка'
-};
-
-const PURPOSE_UZ = {
-  sell: 'СОТИЛАДИ',
-  rent: 'ИЖАРАГА'
-};
-
-// Obyekt uchun asosiy post matni
+// Kirill harflarini lotinga o'girish (foydalanuvchi matnlari uchun)
 function toLatin(value) {
   if (value === null || value === undefined) return '';
   const map = {
-    'А':'A','а':'a','Б':'B','б':'b','В':'V','в':'v','Г':'G','г':'g',
-    'Д':'D','д':'d','Е':'E','е':'e','Ё':'Yo','ё':'yo','Ж':'J','ж':'j',
-    'З':'Z','з':'z','И':'I','и':'i','Й':'Y','й':'y','К':'K','к':'k',
-    'Л':'L','л':'l','М':'M','м':'m','Н':'N','н':'n','О':'O','о':'o',
-    'П':'P','п':'p','Р':'R','р':'r','С':'S','с':'s','Т':'T','т':'t',
-    'У':'U','у':'u','Ф':'F','ф':'f','Х':'X','х':'x','Ц':'Ts','ц':'ts',
-    'Ч':'Ch','ч':'ch','Ш':'Sh','ш':'sh','Щ':'Sh','щ':'sh','Ъ':'','ъ':'',
-    'Ы':'I','ы':'i','Ь':'','ь':'','Э':'E','э':'e','Ю':'Yu','ю':'yu',
-    'Я':'Ya','я':'ya','Ў':'O‘','ў':'o‘','Қ':'Q','қ':'q','Ғ':'G‘','ғ':'g‘',
-    'Ҳ':'H','ҳ':'h'
+    'А': 'A', 'а': 'a', 'Б': 'B', 'б': 'b', 'В': 'V', 'в': 'v', 'Г': 'G', 'г': 'g',
+    'Д': 'D', 'д': 'd', 'Е': 'E', 'е': 'e', 'Ё': 'Yo', 'ё': 'yo', 'Ж': 'J', 'ж': 'j',
+    'З': 'Z', 'з': 'z', 'И': 'I', 'и': 'i', 'Й': 'Y', 'й': 'y', 'К': 'K', 'к': 'k',
+    'Л': 'L', 'л': 'l', 'М': 'M', 'м': 'm', 'Н': 'N', 'н': 'n', 'О': 'O', 'о': 'o',
+    'П': 'P', 'п': 'p', 'Р': 'R', 'р': 'r', 'С': 'S', 'с': 's', 'Т': 'T', 'т': 't',
+    'У': 'U', 'у': 'u', 'Ф': 'F', 'ф': 'f', 'Х': 'X', 'х': 'x', 'Ц': 'Ts', 'ц': 'ts',
+    'Ч': 'Ch', 'ч': 'ch', 'Ш': 'Sh', 'ш': 'sh', 'Щ': 'Sh', 'щ': 'sh', 'Ъ': '', 'ъ': '',
+    'Ы': 'I', 'ы': 'i', 'Ь': '', 'ь': '', 'Э': 'E', 'э': 'e', 'Ю': 'Yu', 'ю': 'yu',
+    'Я': 'Ya', 'я': 'ya', 'Ў': 'O‘', 'ў': 'o‘', 'Қ': 'Q', 'қ': 'q', 'Ғ': 'G‘', 'ғ': 'g‘',
+    'Ҳ': 'H', 'ҳ': 'h'
   };
   return String(value).split('').map(ch => map[ch] ?? ch).join('');
 }
@@ -50,6 +50,7 @@ const PURPOSE_UZ = {
   rent: 'IJARAGA'
 };
 
+// Obyekt uchun asosiy post matni
 function buildPropertyBaseText(property) {
   const type = TYPE_UZ[property.property_type] || toLatin(property.property_type);
   const purpose = PURPOSE_UZ[property.purpose] || toLatin(property.purpose);
@@ -104,40 +105,49 @@ function buildAgentPostText(property, agent) {
 
 // Kanalga post yuborish
 async function sendPropertyPost(property, agent) {
+  if (!bot) {
+    console.warn('[telegram.js] sendPropertyPost chaqirildi, lekin bot ishga tushmagan (BOT_TOKEN yo\'q).');
+    return false;
+  }
+
   const publicText = buildPublicPostText(property);
   const agentText = buildAgentPostText(property, agent);
   const photos = property.photos || [];
 
-  // Agentga olib boradigan "Bog'lanish" tugmasi ommaviy kanaldan olib tashlandi.
   // "Batafsil" tugmasi fotosiz postlarda qoladi.
   const publicKeyboard = {
     inline_keyboard: [[
-      { text: '🔍 Батафсил', callback_data: `prop_${property.id}` }
+      { text: '🔍 Batafsil', callback_data: `prop_${property.id}` }
     ]]
   };
 
-  // 1. Ommaviy kanal — Golden Key Info raqami bilan
-  if (process.env.CHANNEL_PUBLIC) {
-    if (photos.length > 0) {
-      const media = photos.map((url, i) => ({
-        type: 'photo',
-        media: url,
-        ...(i === 0 ? { caption: publicText, parse_mode: 'HTML' } : {})
-      }));
-      await bot.sendMediaGroup(process.env.CHANNEL_PUBLIC, media);
-    } else {
-      await bot.sendMessage(process.env.CHANNEL_PUBLIC, publicText, {
-        parse_mode: 'HTML',
-        reply_markup: publicKeyboard
+  try {
+    // 1. Ommaviy kanal — Golden Key Info raqami bilan
+    if (process.env.CHANNEL_PUBLIC) {
+      if (photos.length > 0) {
+        const media = photos.map((url, i) => ({
+          type: 'photo',
+          media: url,
+          ...(i === 0 ? { caption: publicText, parse_mode: 'HTML' } : {})
+        }));
+        await bot.sendMediaGroup(process.env.CHANNEL_PUBLIC, media);
+      } else {
+        await bot.sendMessage(process.env.CHANNEL_PUBLIC, publicText, {
+          parse_mode: 'HTML',
+          reply_markup: publicKeyboard
+        });
+      }
+    }
+
+    // 2. Agentlar kanali — agentning o'z telefoni va to'liq ma'lumot bilan
+    if (process.env.CHANNEL_AGENTS) {
+      await bot.sendMessage(process.env.CHANNEL_AGENTS, agentText, {
+        parse_mode: 'HTML'
       });
     }
-  }
-
-  // 2. Agentlar kanali — agentning o'z telefoni va to'liq ma'lumot bilan
-  if (process.env.CHANNEL_AGENTS) {
-    await bot.sendMessage(process.env.CHANNEL_AGENTS, agentText, {
-      parse_mode: 'HTML'
-    });
+  } catch (err) {
+    console.error('[telegram.js] sendPropertyPost xatolik:', err.message);
+    return false;
   }
 
   return true;
@@ -145,15 +155,19 @@ async function sendPropertyPost(property, agent) {
 
 // Yangi bino uchun post
 async function sendProjectPost(project, company) {
-  if (!process.env.CHANNEL_NEWBUILDS) return;
+  if (!bot) {
+    console.warn('[telegram.js] sendProjectPost chaqirildi, lekin bot ishga tushmagan (BOT_TOKEN yo\'q).');
+    return false;
+  }
+  if (!process.env.CHANNEL_NEWBUILDS) return false;
 
   const available = project.total_units - project.sold_units;
   let text = `🏗 <b>YANGI BINO</b>\n`;
   text += `<b>${project.name}</b>\n\n`;
 
   if (project.region) text += `📍 ${project.region}\n`;
-  text += `🏠 Jami: ${project.total_units} та\n`;
-  text += `✅ Mavjud: <b>${available} та</b>\n`;
+  text += `🏠 Jami: ${project.total_units} ta\n`;
+  text += `✅ Mavjud: <b>${available} ta</b>\n`;
   if (project.delivery_date) {
     text += `📅 Topshirish: ${new Date(project.delivery_date).toLocaleDateString('uz-UZ')}\n`;
   }
@@ -161,18 +175,24 @@ async function sendProjectPost(project, company) {
   text += `\n🏢 <b>${company.name}</b>`;
 
   const photos = project.photos || [];
-  if (photos.length > 0) {
-    const media = photos.map((url, i) => ({
-      type: 'photo',
-      media: url,
-      ...(i === 0 ? { caption: text, parse_mode: 'HTML' } : {})
-    }));
-    await bot.sendMediaGroup(process.env.CHANNEL_NEWBUILDS, media);
-  } else {
-    await bot.sendMessage(process.env.CHANNEL_NEWBUILDS, text, { parse_mode: 'HTML' });
+
+  try {
+    if (photos.length > 0) {
+      const media = photos.map((url, i) => ({
+        type: 'photo',
+        media: url,
+        ...(i === 0 ? { caption: text, parse_mode: 'HTML' } : {})
+      }));
+      await bot.sendMediaGroup(process.env.CHANNEL_NEWBUILDS, media);
+    } else {
+      await bot.sendMessage(process.env.CHANNEL_NEWBUILDS, text, { parse_mode: 'HTML' });
+    }
+  } catch (err) {
+    console.error('[telegram.js] sendProjectPost xatolik:', err.message);
+    return false;
   }
+
+  return true;
 }
 
 module.exports = { sendPropertyPost, sendProjectPost };
-
-
