@@ -26,25 +26,27 @@ function buildPropertyBaseText(property) {
   const purpose = PURPOSE_UZ[property.purpose] || property.purpose;
   const price = Number(property.price).toLocaleString('uz-UZ');
 
-  let text = `🏷 <b>${purpose}</b>\n`;
-  text += `${type}\n\n`;
-
-  if (property.rooms) text += `🛏 ${property.rooms} хона`;
-  if (property.area) text += ` · 📐 ${property.area} м²`;
-  if (property.floor && property.total_floors) text += ` · 🏢 ${property.floor}/${property.total_floors} қават`;
-  text += '\n';
-
-  text += `💰 <b>$${price}</b>\n`;
+  let text = `<b>${purpose}</b> ${type}\n\n`;
 
   if (property.region || property.district) {
-    text += `📍 ${[property.region, property.district].filter(Boolean).join(', ')}\n`;
+    text += `📍 <b>Манзил:</b> ${[property.region, property.district].filter(Boolean).join(', ')}\n`;
   }
 
-  if (property.mortgage) text += `✅ Ипотека мумкин\n`;
-  if (property.installment) text += `✅ Муддатли тўлов\n`;
+  const details = [];
+  if (property.rooms) details.push(`🛏 ${property.rooms} хона`);
+  if (property.area) details.push(`📐 ${property.area} м²`);
+  if (property.floor && property.total_floors) details.push(`🏢 ${property.floor}/${property.total_floors} қават`);
+  if (details.length) text += `${details.join('  |  ')}\n`;
+
+  text += `\n💰 <b>Нархи: $${price}</b>\n`;
+
+  const options = [];
+  if (property.mortgage) options.push('Ипотека мумкин');
+  if (property.installment) options.push('Муддатли тўлов');
+  if (options.length) text += `\n✅ ${options.join('  |  ')}\n`;
 
   if (property.description) {
-    text += `\n📝 ${property.description}\n`;
+    text += `\n📝 <b>Қўшимча маълумотлар:</b>\n${property.description}\n`;
   }
 
   return text;
