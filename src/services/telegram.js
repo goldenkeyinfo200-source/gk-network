@@ -18,7 +18,7 @@ if (process.env.BOT_TOKEN) {
 
 // Ommaviy kanal uchun Golden Key Info telefon raqami.
 // Railway Variables ichida PUBLIC_PHONE bersangiz, keyinchalik kodni o'zgartirmasdan almashtirish mumkin.
-const PUBLIC_PHONE = process.env.PUBLIC_PHONE || '+998 99 999 79 73';
+const PUBLIC_PHONE = (process.env.PUBLIC_PHONE || '+998999997973').replace(/[^0-9+]/g, '');
 
 // Kirill harflarini lotinga o'girish (foydalanuvchi matnlari uchun)
 function toLatin(value) {
