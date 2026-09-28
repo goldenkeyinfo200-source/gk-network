@@ -278,9 +278,8 @@ async function sendPropertyPost(property, agent, bot) {
       console.error(`❌ Agent bot xato:`, err.message);
     }
   } else {
-    console.warn(
-      `⚠️ telegram_id yo'q: ${agent && agent.full_name ? agent.full_name : 'noma'lum agent'}`
-    );
+    const agentName = (agent && agent.full_name) ? agent.full_name : "noma'lum agent";
+    console.warn(`⚠️ telegram_id yo'q: ${agentName}`);
   }
 
   return success;
