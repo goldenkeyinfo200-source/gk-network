@@ -7,6 +7,8 @@
 //
 // CRM bazasidagi to'liq manzil va owner ma'lumotlari o'zgarmaydi.
 
+const fs = require('fs');
+
 const TYPE_UZ = {
   apartment:  'Kvartira',
   house:      'Uy / Hovli',
@@ -202,8 +204,101 @@ function buildText(property, agent, mode = 'public') {
   return t;
 }
 
-async function sendPost(bot, chatId, text) {
-  await bot.sendMessage(chatId, text, { parse_mode: 'HTML' });
+/**
+ * Mulk rasmlarini massiv ko'rinishida olish.
+ * Har xil nomdagi maydonlarni qo'llab-quvvatlaydi:
+ * photos, images, photo_urls, image_urls, media, photo.
+ * Element: string (URL / file_id / lokal yo'l) yoki { url | file_id | path }.
+ * Agar maydon JSON string bo'lsa, parse qilinadi.
+ */
+function getPhotos(property) {
+  const candidates = [
+    property.photos,
+    property.images,
+    property.photo_urls,
+    property.image_urls,
+    property.media,
+    property.photo,
+  ];
+
+  let list = [];
+  for (const c of candidates) {
+    if (!c) continue;
+    let v = c;
+    if (typeof v === 'string') {
+      const trimmed = v.trim();
+      if (trimmed.startsWith('[')) {
+        try { v = JSON.parse(trimmed); } catch (_) { v = [trimmed]; }
+      } else {
+        v = trimmed.split(',').map((x) => x.trim()).filter(Boolean);
+      }
+    }
+    if (!Array.isArray(v)) v = [v];
+    list = v;
+    if (list.length) break;
+  }
+
+  return list
+    .map((item) => {
+      if (!item) return null;
+      if (typeof item === 'string') return item;
+      return item.url || item.file_id || item.path || item.src || null;
+    })
+    .filter(Boolean)
+    .slice(0, 10); // Telegram albomi maksimum 10 ta
+}
+
+// Lokal fayl yo'li bo'lsa oqimga aylantiramiz, aks holda (URL / file_id) o'zini beramiz.
+function toMedia(src) {
+  const isUrl = /^https?:\/\//i.test(src);
+  if (!isUrl && fs.existsSync(src)) return fs.createReadStream(src);
+  return src;
+}
+
+const CAPTION_LIMIT = 1024;
+
+/**
+ * Rasm bilan yuborish:
+ *  - rasm yo'q      -> oddiy matn
+ *  - 1 ta rasm      -> sendPhoto (matn caption)
+ *  - 2+ rasm        -> sendMediaGroup (matn 1-rasmning caption'i)
+ *  - matn 1024 dan uzun bo'lsa: rasmlar alohida, matn keyin alohida xabar
+ *  - rasm yuborishda xato bo'lsa: matn baribir yuboriladi (post yo'qolmaydi)
+ */
+async function sendPost(bot, chatId, text, photos = []) {
+  if (!photos.length) {
+    await bot.sendMessage(chatId, text, { parse_mode: 'HTML' });
+    return;
+  }
+
+  const fitsCaption = text.length <= CAPTION_LIMIT;
+
+  try {
+    if (photos.length === 1) {
+      await bot.sendPhoto(
+        chatId,
+        toMedia(photos[0]),
+        fitsCaption ? { caption: text, parse_mode: 'HTML' } : {}
+      );
+    } else {
+      const media = photos.map((src, i) => {
+        const item = { type: 'photo', media: toMedia(src) };
+        if (i === 0 && fitsCaption) {
+          item.caption = text;
+          item.parse_mode = 'HTML';
+        }
+        return item;
+      });
+      await bot.sendMediaGroup(chatId, media);
+    }
+
+    if (!fitsCaption) {
+      await bot.sendMessage(chatId, text, { parse_mode: 'HTML' });
+    }
+  } catch (err) {
+    console.error(`⚠️ Rasm yuborishda xato, matn yuboriladi:`, err.message);
+    await bot.sendMessage(chatId, text, { parse_mode: 'HTML' });
+  }
 }
 
 async function sendPropertyPost(property, agent, bot) {
@@ -213,6 +308,8 @@ async function sendPropertyPost(property, agent, bot) {
   }
 
   let success = false;
+  const photos = getPhotos(property);
+  console.log(`🖼 Rasmlar soni: ${photos.length} | ${property.display_id}`);
 
   // ─────────────────────────────────────────────────────
   // 1. MARKAZIY KANAL
@@ -225,7 +322,7 @@ async function sendPropertyPost(property, agent, bot) {
     try {
       const publicText = buildText(property, agent, 'public');
 
-      await sendPost(bot, publicChannel, publicText);
+      await sendPost(bot, publicChannel, publicText, photos);
 
       console.log(
         `✅ Markaziy kanal: ${property.display_id} | telefon=${PUBLIC_PHONE}`
@@ -249,7 +346,7 @@ async function sendPropertyPost(property, agent, bot) {
     try {
       const internalText = buildText(property, agent, 'internal');
 
-      await sendPost(bot, agentsChannel, internalText);
+      await sendPost(bot, agentsChannel, internalText, photos);
 
       console.log(`✅ Agentlar ichki kanali: ${property.display_id}`);
     } catch (err) {
@@ -267,7 +364,7 @@ async function sendPropertyPost(property, agent, bot) {
     try {
       const agentText = buildText(property, agent, 'agent');
 
-      await sendPost(bot, agent.telegram_id, agentText);
+      await sendPost(bot, agent.telegram_id, agentText, photos);
 
       console.log(
         `✅ Agent bot: ${agent.full_name} | telefon=${formatPhone(agent.phone) || 'yo‘q'}`
@@ -290,4 +387,5 @@ module.exports = {
   buildText,
   getShortAddress,
   getFullAddress,
+  getPhotos,
 };
