@@ -1,198 +1,294 @@
-// Railway redeploy trigger 2026-09-16
-const TelegramBot = require('node-telegram-bot-api');
-require('dotenv').config();
-
-// --- Botni xavfsiz ishga tushirish ---
-// BOT_TOKEN noto'g'ri yoki yo'q bo'lsa ham, bu fayl butun serverni
-// (index.js / routes/properties.js orqali) qulatib qo'ymasligi kerak.
-let bot = null;
-if (process.env.BOT_TOKEN) {
-  try {
-    bot = new TelegramBot(process.env.BOT_TOKEN);
-  } catch (err) {
-    console.error('[telegram.js] Botni ishga tushirishda xatolik:', err.message);
-  }
-} else {
-  console.warn('[telegram.js] BOT_TOKEN topilmadi — Telegram funksiyalari o\'chirilgan.');
-}
-
-// Ommaviy kanal uchun Golden Key Info telefon raqami.
-// Railway Variables ichida PUBLIC_PHONE bersangiz, keyinchalik kodni o'zgartirmasdan almashtirish mumkin.
-const PUBLIC_PHONE = (process.env.PUBLIC_PHONE || '+998999997973').replace(/[^0-9+]/g, '');
-
-// Kirill harflarini lotinga o'girish (foydalanuvchi matnlari uchun)
-function toLatin(value) {
-  if (value === null || value === undefined) return '';
-  const map = {
-    'А': 'A', 'а': 'a', 'Б': 'B', 'б': 'b', 'В': 'V', 'в': 'v', 'Г': 'G', 'г': 'g',
-    'Д': 'D', 'д': 'd', 'Е': 'E', 'е': 'e', 'Ё': 'Yo', 'ё': 'yo', 'Ж': 'J', 'ж': 'j',
-    'З': 'Z', 'з': 'z', 'И': 'I', 'и': 'i', 'Й': 'Y', 'й': 'y', 'К': 'K', 'к': 'k',
-    'Л': 'L', 'л': 'l', 'М': 'M', 'м': 'm', 'Н': 'N', 'н': 'n', 'О': 'O', 'о': 'o',
-    'П': 'P', 'п': 'p', 'Р': 'R', 'р': 'r', 'С': 'S', 'с': 's', 'Т': 'T', 'т': 't',
-    'У': 'U', 'у': 'u', 'Ф': 'F', 'ф': 'f', 'Х': 'X', 'х': 'x', 'Ц': 'Ts', 'ц': 'ts',
-    'Ч': 'Ch', 'ч': 'ch', 'Ш': 'Sh', 'ш': 'sh', 'Щ': 'Sh', 'щ': 'sh', 'Ъ': '', 'ъ': '',
-    'Ы': 'I', 'ы': 'i', 'Ь': '', 'ь': '', 'Э': 'E', 'э': 'e', 'Ю': 'Yu', 'ю': 'yu',
-    'Я': 'Ya', 'я': 'ya', 'Ў': 'O‘', 'ў': 'o‘', 'Қ': 'Q', 'қ': 'q', 'Ғ': 'G‘', 'ғ': 'g‘',
-    'Ҳ': 'H', 'ҳ': 'h'
-  };
-  return String(value).split('').map(ch => map[ch] ?? ch).join('');
-}
+// telegram.js
+//
+// Telegram e'lonlarini 3 xil ko'rinishda yuboradi:
+// 1) MARKAZIY KANAL: manzil qisqartiriladi + faqat kompaniya telefoni.
+// 2) AGENT SHAXSIY BOTI: manzil qisqartiriladi + agent telefoni.
+// 3) AGENTLAR ICHKI KANALI: to'liq manzil + agent telefoni + mulk egasi ma'lumotlari.
+//
+// CRM bazasidagi to'liq manzil va owner ma'lumotlari o'zgarmaydi.
 
 const TYPE_UZ = {
-  apartment: '🏠 Kvartira',
-  house: '🏡 Hovli',
-  office: '🏢 Ofis',
-  land: '🏗 Yer uchastkasi'
+  apartment:  'Kvartira',
+  house:      'Uy / Hovli',
+  office:     'Ofis',
+  land:       'Yer (Arsa)',
+  commercial: 'Noturar joy',
 };
 
-const PURPOSE_UZ = {
-  sell: 'SOTILADI',
-  rent: 'IJARAGA'
-};
+const PUBLIC_PHONE = '+998999997973';
 
-// Obyekt uchun asosiy post matni
-function buildPropertyBaseText(property) {
-  const type = TYPE_UZ[property.property_type] || toLatin(property.property_type);
-  const purpose = PURPOSE_UZ[property.purpose] || toLatin(property.purpose);
-  const price = Number(property.price).toLocaleString('uz-UZ');
+/**
+ * Telegramga chiqariladigan qisqa manzil.
+ *
+ * Misol:
+ * "Shaldiramoq, 12/8 | Shaldiramoq" -> "Shaldiramoq"
+ * "Shaldiramoq, 12/8"                -> "Shaldiramoq"
+ */
+function getShortAddress(property) {
+  const raw =
+    property.landmark ||
+    property.address ||
+    property.district ||
+    property.region ||
+    '';
 
-  let text = `🏷 <b>${purpose}</b> ${type}\n\n`;
+  // "manzil | mo'ljal" formatida bo'lsa, chap tomoni manzil.
+  let value = String(raw).split('|')[0].trim();
 
-  if (property.address || property.region || property.district) {
-    const address = property.address || [property.region, property.district].filter(Boolean).join(', ');
-    text += `📍 <b>Manzil:</b> ${toLatin(address)}\n`;
+  // Uy raqamini oxiridan olib tashlash.
+  // Misollar: ", 12/8", ", 12", " 12/8"
+  value = value
+    .replace(/\s*,\s*\d+[A-Za-zА-Яа-я]?(?:\s*[/\\-]\s*\d+[A-Za-zА-Яа-я]?)?\s*$/u, '')
+    .replace(/\s+\d+[A-Za-zА-Яа-я]?(?:\s*[/\\-]\s*\d+[A-Za-zА-Яа-я]?)?\s*$/u, '')
+    .trim();
+
+  return value;
+}
+
+/**
+ * To'liq manzil faqat ichki agentlar kanalida ishlatiladi.
+ * CRMdagi address maydoni mavjud bo'lsa, u yo'qolib ketmaydi.
+ */
+function getFullAddress(property) {
+  const parts = [];
+
+  if (property.region) parts.push(String(property.region).trim());
+  if (property.district) parts.push(String(property.district).trim());
+
+  const address = String(property.address || '').trim();
+  if (address) {
+    parts.push(address);
+  } else if (property.landmark) {
+    const landmarkAddress = String(property.landmark).split('|')[0].trim();
+    if (landmarkAddress) parts.push(landmarkAddress);
   }
-  if (property.floor && property.total_floors) {
-    text += `🏢 Qavat: ${property.floor}/${property.total_floors}\n`;
+
+  return [...new Set(parts.filter(Boolean))].join(', ');
+}
+
+/**
+ * Mo'ljalni alohida olish.
+ * landmark: "Shaldiramoq, 12/8 | Shaldiramoq"
+ * natija: "Shaldiramoq"
+ */
+function getLandmark(property) {
+  const raw = String(property.landmark || '');
+  const parts = raw.split('|');
+
+  if (parts[1] && parts[1].trim()) {
+    return parts[1].trim();
   }
-  if (property.rooms) text += `🛏 Xonalar soni: ${property.rooms} ta\n`;
-  if (property.area) text += `📐 Maydoni: ${property.area} m²\n`;
 
-  if (property.landmark) text += `📌 Mo‘ljal: ${toLatin(property.landmark)}\n`;
-  if (property.mortgage) text += `✅ Ipoteka mumkin\n`;
-  if (property.installment) text += `✅ Muddatli to‘lov\n`;
+  return '';
+}
 
+function formatPhone(phone) {
+  // Raqamni o'zgartirmaymiz: foydalanuvchi kiritgan bo'lsa,
+  // bo'sh joylarni ham olib tashlaymiz.
+  return String(phone || '').replace(/\s+/g, '');
+}
+
+/**
+ * Umumiy e'lon matni.
+ *
+ * mode:
+ *   public  - markaziy kanal
+ *   agent   - agentning shaxsiy boti
+ *   internal - agentlar ichki kanali
+ */
+function buildText(property, agent, mode = 'public') {
+  const type   = TYPE_UZ[property.property_type] || property.property_type;
+  const price  = Number(property.price).toLocaleString('en-US');
+  const isLand = property.property_type === 'land';
+  const isSell = property.purpose === 'sell';
+  const line   = '━━━━━━━━━━━━━━━';
+
+  const shortAddress = getShortAddress(property);
+  const fullAddress  = getFullAddress(property);
+  const moljal       = getLandmark(property);
+
+  let t = '';
+
+  // Sarlavha
+  t += `🏠 <b>${isSell ? 'Sotiladi' : 'Ijaraga beriladi'}!</b>\n\n`;
+
+  // Manzil:
+  // Markaziy kanal va agent shaxsiy botida uy raqami ko'rsatilmaydi.
+  if (mode === 'internal') {
+    if (fullAddress) {
+      t += `📍 <b>Manzil:</b> ${fullAddress}\n`;
+    }
+  } else {
+    if (shortAddress) {
+      t += `📍 <b>Manzil:</b> ${shortAddress}\n`;
+    }
+  }
+
+  // Qavat
+  if (!isLand && property.floor) {
+    t += `🏢 <b>Qavati:</b> ${property.floor}${property.total_floors ? ' / ' + property.total_floors : ''}\n`;
+  }
+
+  // Xonalar
+  if (!isLand && property.rooms) {
+    t += `🛏️ <b>Xonalar soni:</b> ${property.rooms}\n`;
+  }
+
+  // Mulkchilik shakli
+  t += `🏗 <b>Mulkchilik shakli:</b> ${type}\n`;
+
+  // Maydon
+  if (property.area) {
+    t += `📏 <b>Maydoni:</b> ${property.area} ${isLand ? 'sotix' : 'm²'}\n`;
+  }
+
+  // Ipoteka
+  if (property.mortgage) {
+    t += `🏦 <b>Ipoteka:</b> Ha\n`;
+  }
+
+  // Muddatli to'lov
+  if (property.installment) {
+    t += `💳 <b>B/to'lov:</b> Ha\n`;
+  }
+
+  // Mo'ljal
+  if (moljal) {
+    t += `📌 <b>Mo'ljal:</b> ${moljal}\n`;
+  }
+
+  // Qo'shimcha ma'lumotlar
   if (property.description) {
-    text += `\n📝 <b>Qo‘shimcha ma’lumotlar:</b>\n${toLatin(property.description)}\n`;
+    const feats = String(property.description).split('\n')[0];
+    if (feats && feats.trim()) {
+      t += `\n📝 <b>Qo'shimcha ma'lumotlar:</b>\n${feats.trim()}\n`;
+    }
   }
 
-  text += `\n💰 <b>Narxi: $${price}</b>\n`;
-  return text;
+  // Narx
+  t += `\n💸 <b>Narxi: $${price}`;
+  if (!isSell) t += '/oy';
+  t += `</b>\n`;
+
+  // Kontakt
+  t += `${line}\n`;
+  t += `📞 <b>Murojaat uchun:</b>\n`;
+
+  if (mode === 'public') {
+    // Faqat markaziy kanal uchun kompaniya raqami.
+    t += `☎️ ${PUBLIC_PHONE}\n`;
+  } else {
+    // Agent boti va ichki kanal uchun agentning o'z raqami.
+    const agentPhone = formatPhone(agent && agent.phone);
+    if (agentPhone) {
+      t += `☎️ ${agentPhone}\n`;
+    }
+  }
+
+  // Ichki agentlar kanalida owner ma'lumotlari saqlanadi.
+  if (mode === 'internal') {
+    if (property.owner_name) {
+      t += `👤 <b>Mulk egasi:</b> ${property.owner_name}\n`;
+    }
+
+    if (property.owner_phone) {
+      t += `☎️ <b>Egasi telefoni:</b> ${formatPhone(property.owner_phone)}\n`;
+    }
+  }
+
+  t += `${line}\n`;
+  t += `🆔 ${property.display_id}`;
+
+  return t;
 }
 
-// Ommaviy kanal posti: agent telefoni o'rniga Golden Key Info raqami chiqadi
-function buildPublicPostText(property) {
-  let text = buildPropertyBaseText(property);
-  text += `\n📞 <b>Murojaat uchun:</b> ${PUBLIC_PHONE}`;
-  text += `\n🆔 ${property.display_id}`;
-  return text;
+async function sendPost(bot, chatId, text) {
+  await bot.sendMessage(chatId, text, { parse_mode: 'HTML' });
 }
 
-// Agentlar ichki kanali: agentning o'z ismi va telefoni saqlanadi
-function buildAgentPostText(property, agent) {
-  let text = buildPropertyBaseText(property);
-
-  text += `\n👤 <b>${toLatin(agent.full_name || 'Agent')}</b>`;
-  if (agent.phone) text += ` · 📞 ${toLatin(agent.phone)}`;
-  text += `\n🆔 ${property.display_id}`;
-
-  if (property.address) text += `\n🗺 <b>Manzil:</b> ${toLatin(property.address)}`;
-  if (property.owner_name) text += `\n👤 <b>Egasi:</b> ${toLatin(property.owner_name)}`;
-  if (property.owner_phone) text += `\n📱 <b>Egasi tel:</b> ${toLatin(property.owner_phone)}`;
-
-  return text;
-}
-
-// Kanalga post yuborish
-async function sendPropertyPost(property, agent) {
+async function sendPropertyPost(property, agent, bot) {
   if (!bot) {
-    console.warn('[telegram.js] sendPropertyPost chaqirildi, lekin bot ishga tushmagan (BOT_TOKEN yo\'q).');
+    console.warn("⚠️ Bot yo'q");
     return false;
   }
 
-  const publicText = buildPublicPostText(property);
-  const agentText = buildAgentPostText(property, agent);
-  const photos = property.photos || [];
+  let success = false;
 
-  // "Batafsil" tugmasi fotosiz postlarda qoladi.
-  const publicKeyboard = {
-    inline_keyboard: [[
-      { text: '🔍 Batafsil', callback_data: `prop_${property.id}` }
-    ]]
-  };
+  // ─────────────────────────────────────────────────────
+  // 1. MARKAZIY KANAL
+  // Manzil: qisqa
+  // Telefon: faqat +998999997973
+  // ─────────────────────────────────────────────────────
+  const publicChannel = process.env.CHANNEL_PUBLIC;
 
-  try {
-    // 1. Ommaviy kanal — Golden Key Info raqami bilan
-    if (process.env.CHANNEL_PUBLIC) {
-      if (photos.length > 0) {
-        const media = photos.map((url, i) => ({
-          type: 'photo',
-          media: url,
-          ...(i === 0 ? { caption: publicText, parse_mode: 'HTML' } : {})
-        }));
-        await bot.sendMediaGroup(process.env.CHANNEL_PUBLIC, media);
-      } else {
-        await bot.sendMessage(process.env.CHANNEL_PUBLIC, publicText, {
-          parse_mode: 'HTML',
-          reply_markup: publicKeyboard
-        });
-      }
+  if (publicChannel) {
+    try {
+      const publicText = buildText(property, agent, 'public');
+
+      await sendPost(bot, publicChannel, publicText);
+
+      console.log(
+        `✅ Markaziy kanal: ${property.display_id} | telefon=${PUBLIC_PHONE}`
+      );
+
+      success = true;
+    } catch (err) {
+      console.error(`❌ Markaziy kanal xato:`, err.message);
     }
-
-    // 2. Agentlar kanali — agentning o'z telefoni va to'liq ma'lumot bilan
-    if (process.env.CHANNEL_AGENTS) {
-      await bot.sendMessage(process.env.CHANNEL_AGENTS, agentText, {
-        parse_mode: 'HTML'
-      });
-    }
-  } catch (err) {
-    console.error('[telegram.js] sendPropertyPost xatolik:', err.message);
-    return false;
   }
 
-  return true;
+  // ─────────────────────────────────────────────────────
+  // 2. AGENTLAR ICHKI KANALI
+  // Manzil: to'liq
+  // Telefon: agentniki
+  // Owner: saqlanadi
+  // ─────────────────────────────────────────────────────
+  const agentsChannel = process.env.CHANNEL_AGENTS;
+
+  if (agentsChannel) {
+    try {
+      const internalText = buildText(property, agent, 'internal');
+
+      await sendPost(bot, agentsChannel, internalText);
+
+      console.log(`✅ Agentlar ichki kanali: ${property.display_id}`);
+    } catch (err) {
+      console.error(`❌ Agentlar kanal xato:`, err.message);
+    }
+  }
+
+  // ─────────────────────────────────────────────────────
+  // 3. AGENTNING SHAXSIY BOTI
+  // Manzil: qisqa
+  // Telefon: agentniki
+  // Uy raqami: yashiriladi
+  // ─────────────────────────────────────────────────────
+  if (agent && agent.telegram_id) {
+    try {
+      const agentText = buildText(property, agent, 'agent');
+
+      await sendPost(bot, agent.telegram_id, agentText);
+
+      console.log(
+        `✅ Agent bot: ${agent.full_name} | telefon=${formatPhone(agent.phone) || 'yo‘q'}`
+      );
+
+      success = true;
+    } catch (err) {
+      console.error(`❌ Agent bot xato:`, err.message);
+    }
+  } else {
+    console.warn(
+      `⚠️ telegram_id yo'q: ${agent && agent.full_name ? agent.full_name : 'noma'lum agent'}`
+    );
+  }
+
+  return success;
 }
 
-// Yangi bino uchun post
-async function sendProjectPost(project, company) {
-  if (!bot) {
-    console.warn('[telegram.js] sendProjectPost chaqirildi, lekin bot ishga tushmagan (BOT_TOKEN yo\'q).');
-    return false;
-  }
-  if (!process.env.CHANNEL_NEWBUILDS) return false;
-
-  const available = project.total_units - project.sold_units;
-  let text = `🏗 <b>YANGI BINO</b>\n`;
-  text += `<b>${project.name}</b>\n\n`;
-
-  if (project.region) text += `📍 ${project.region}\n`;
-  text += `🏠 Jami: ${project.total_units} ta\n`;
-  text += `✅ Mavjud: <b>${available} ta</b>\n`;
-  if (project.delivery_date) {
-    text += `📅 Topshirish: ${new Date(project.delivery_date).toLocaleDateString('uz-UZ')}\n`;
-  }
-  if (project.description) text += `\n📝 ${project.description}\n`;
-  text += `\n🏢 <b>${company.name}</b>`;
-
-  const photos = project.photos || [];
-
-  try {
-    if (photos.length > 0) {
-      const media = photos.map((url, i) => ({
-        type: 'photo',
-        media: url,
-        ...(i === 0 ? { caption: text, parse_mode: 'HTML' } : {})
-      }));
-      await bot.sendMediaGroup(process.env.CHANNEL_NEWBUILDS, media);
-    } else {
-      await bot.sendMessage(process.env.CHANNEL_NEWBUILDS, text, { parse_mode: 'HTML' });
-    }
-  } catch (err) {
-    console.error('[telegram.js] sendProjectPost xatolik:', err.message);
-    return false;
-  }
-
-  return true;
-}
-
-module.exports = { sendPropertyPost, sendProjectPost };
+module.exports = {
+  sendPropertyPost,
+  buildText,
+  getShortAddress,
+  getFullAddress,
+};
